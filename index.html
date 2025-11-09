@@ -3,82 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Test Website</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            text-align: center;
-        }
-        .container {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 40px;
-            border-radius: 15px;
-            backdrop-filter: blur(10px);
-            margin-top: 50px;
-        }
-        h1 {
-            font-size: 2.5em;
-            margin-bottom: 20px;
-        }
-        p {
-            font-size: 1.2em;
-            line-height: 1.6;
-        }
-        .success {
-            background: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 5px;
-            display: inline-block;
-            margin: 20px 0;
-        }
-        .info {
-            background: #2196F3;
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-            text-align: left;
-        }
-    </style>
+    <title>Circle Mover Game</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>🚀 Success! Website Deployed</h1>
-        <div class="success">
-            GitHub to Oracle Cloud Deployment Working!
+    <div class="game-container">
+        <h1>🎮 Circle Mover</h1>
+        
+        <div class="instructions">
+            <p>Move the circle around the screen! Collect the red targets.</p>
         </div>
-        
-        <p>Your website is successfully running on Oracle Cloud Infrastructure.</p>
-        
-        <div class="info">
-            <strong>Server Info:</strong><br>
-            • Ubuntu 20.04<br>
-            • Nginx Web Server<br>
-            • Deployed from GitHub<br>
-            • IP: 163.192.106.72<br>
-            • Timestamp: <span id="timestamp"></span>
+
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <div class="stats">
+            <div>Score: <span id="score">0</span></div>
+            <div>Targets Collected: <span id="targets">0</span></div>
         </div>
-        
-        <p>You can now update your website by pushing changes to your GitHub repository!</p>
+
+        <div class="controls">
+            <div class="control-group">
+                <strong>Arrow Keys:</strong>
+                <div>
+                    <span class="key">↑</span><span class="key">↓</span>
+                    <span class="key">←</span><span class="key">→</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <strong>WASD:</strong>
+                <div>
+                    <span class="key">W</span><span class="key">S</span>
+                    <span class="key">A</span><span class="key">D</span>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <script>
-        // Add current timestamp
-        document.getElementById('timestamp').textContent = new Date().toLocaleString();
-        
-        // Simple animation
-        setTimeout(() => {
-            document.querySelector('.success').style.transform = 'scale(1.05)';
-            setTimeout(() => {
-                document.querySelector('.success').style.transform = 'scale(1)';
-            }, 200);
-        }, 1000);
-    </script>
+    <script src="game.js"></script>
 </body>
 </html>
