@@ -7,38 +7,26 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="game-container">
+    <div class="menu-container">
         <h1>🎮 Circle Mover</h1>
         
+        <div class="menu-options">
+            <div class="menu-card" onclick="window.location.href='singleplayer.html'">
+                <h2>Single Player</h2>
+                <p>Play by yourself and practice your skills</p>
+                <div class="play-btn">Play Solo</div>
+            </div>
+            
+            <div class="menu-card" onclick="window.location.href='multiplayer.html'">
+                <h2>Multiplayer</h2>
+                <p>Play with friends in real-time</p>
+                <div class="play-btn">Play Together</div>
+            </div>
+        </div>
+
         <div class="instructions">
-            <p>Move the circle around the screen! Collect the red targets.</p>
-        </div>
-
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-
-        <div class="stats">
-            <div>Score: <span id="score">0</span></div>
-            <div>Targets Collected: <span id="targets">0</span></div>
-        </div>
-
-        <div class="controls">
-            <div class="control-group">
-                <strong>Arrow Keys:</strong>
-                <div>
-                    <span class="key">↑</span><span class="key">↓</span>
-                    <span class="key">←</span><span class="key">→</span>
-                </div>
-            </div>
-            <div class="control-group">
-                <strong>WASD:</strong>
-                <div>
-                    <span class="key">W</span><span class="key">S</span>
-                    <span class="key">A</span><span class="key">D</span>
-                </div>
-            </div>
+            <p>Use Arrow Keys or WASD to move your circle</p>
         </div>
     </div>
-
-    <script src="game.js"></script>
 </body>
 </html>

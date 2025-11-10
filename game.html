@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Game - Circle Mover</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-header">
+            <h1>🎮 Room: <span id="roomCodeDisplay"></span></h1>
+            <div class="player-count">Players: <span id="playerCount">1</span></div>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <div class="stats">
+            <div>Your Score: <span id="score">0</span></div>
+            <div>Targets Collected: <span id="targets">0</span></div>
+            <div class="players-list">
+                <strong>Players:</strong>
+                <div id="playersList"></div>
+            </div>
+        </div>
+
+        <div class="back-btn" onclick="leaveRoom()">← Leave Room</div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer - Circle Mover</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="menu-container">
+        <h1>🎮 Multiplayer</h1>
+        
+        <div class="multiplayer-options">
+            <div class="menu-card">
+                <h2>Create Room</h2>
+                <p>Start a new game and invite friends</p>
+                <button class="play-btn" onclick="createRoom()">Create New Room</button>
+            </div>
+            
+            <div class="menu-card">
+                <h2>Join Room</h2>
+                <p>Enter a room code to join friends</p>
+                <input type="text" id="roomCode" placeholder="Enter room code" maxlength="6">
+                <button class="play-btn" onclick="joinRoom()">Join Room</button>
+            </div>
+        </div>
+
+        <div class="back-btn" onclick="window.location.href='index.html'">← Back to Menu</div>
+
+        <div id="roomInfo" class="room-info" style="display: none;">
+            <h3>Room Created!</h3>
+            <p>Share this link with friends:</p>
+            <div class="room-link">
+                <span id="roomLink"></span>
+                <button onclick="copyRoomLink()">Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="multiplayer.js"></script>
+</body>
+</html>
