@@ -39,45 +39,49 @@ io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     socket.on('join-room', (roomCode, playerName) => {
-        socket.roomCode = roomCode;
-        socket.join(roomCode);
+    socket.roomCode = roomCode;
+    socket.join(roomCode);
 
-        if (!rooms.has(roomCode)) {
-            rooms.set(roomCode, {
-                players: new Map(),
-                targets: generateTargets(5),
-                scores: new Map()
-            });
-        }
-
-        const room = rooms.get(roomCode);
-        const playerId = socket.id;
-        room.players.set(playerId, {
-            id: playerId,
-            name: playerName || `Player${room.players.size + 1}`,
-            x: Math.random() * 700 + 50,
-            y: Math.random() * 500 + 50,
-            color: getRandomColor()
+    if (!rooms.has(roomCode)) {
+        rooms.set(roomCode, {
+            players: new Map(),
+            targets: generateTargets(5),
+            scores: new Map()
         });
+    }
 
-        room.scores.set(playerId, 0);
+    const room = rooms.get(roomCode);
+    const playerId = socket.id;
+    
+    // Make sure player positions are within canvas bounds
+room.players.set(playerId, {
+    id: playerId,
+    name: playerName || `Player${room.players.size + 1}`,
+    x: Math.random() * 600 + 100,
+    y: Math.random() * 400 + 100,
+    radius: 20,  // Make sure this exists
+    color: getRandomColor(),
+    borderColor: '#0288D1'  // Add this for consistency
+});
 
-        // Send current game state to new player
-        socket.emit('game-state', {
-            players: Array.from(room.players.values()),
-            targets: room.targets,
-            scores: Array.from(room.scores.entries()).map(([id, score]) => ({
-                playerId: id,
-                score: score
-            }))
-        });
+    room.scores.set(playerId, 0);
 
-        // Notify other players
-        socket.to(roomCode).emit('player-joined', room.players.get(playerId));
-        io.to(roomCode).emit('player-count', room.players.size);
+    console.log(`Player ${playerId} joined room ${roomCode} at position ${room.players.get(playerId).x}, ${room.players.get(playerId).y}`);
 
-        console.log(`Player ${playerId} joined room ${roomCode}`);
+    // Send current game state to new player
+    socket.emit('game-state', {
+        players: Array.from(room.players.values()),
+        targets: room.targets,
+        scores: Array.from(room.scores.entries()).map(([id, score]) => ({
+            playerId: id,
+            score: score
+        }))
     });
+
+    // Notify other players
+    socket.to(roomCode).emit('player-joined', room.players.get(playerId));
+    io.to(roomCode).emit('player-count', room.players.size);
+});
 
     socket.on('player-move', (data) => {
         const roomCode = socket.roomCode;

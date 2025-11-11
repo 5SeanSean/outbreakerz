@@ -9,16 +9,16 @@ const roomCodeDisplay = document.getElementById('roomCodeDisplay');
 // Get room code from URL
 const urlParams = new URLSearchParams(window.location.search);
 const roomCode = urlParams.get('room') || localStorage.getItem('roomCode');
-const isHost = localStorage.getItem('isHost') === 'true';
 
 // Socket.io connection
 const socket = io();
 
-// Game state
+// Game state - use same structure as singleplayer
 let players = new Map();
 let targets = [];
-let scores = new Map();
 let myPlayerId = null;
+let score = 0;
+let targetsCollected = 0;
 
 // Initialize game
 function init() {
@@ -40,20 +40,21 @@ function init() {
 socket.on('game-state', (gameState) => {
     players = new Map(gameState.players.map(player => [player.id, player]));
     targets = gameState.targets;
-    scores = new Map(gameState.scores);
     myPlayerId = socket.id;
     updatePlayersList();
+    console.log('Game state received:', players.size, 'players,', targets.length, 'targets');
 });
 
 socket.on('player-joined', (newPlayer) => {
     players.set(newPlayer.id, newPlayer);
     updatePlayersList();
+    console.log('Player joined:', newPlayer.name);
 });
 
 socket.on('player-left', (playerId) => {
     players.delete(playerId);
-    scores.delete(playerId);
     updatePlayersList();
+    console.log('Player left:', playerId);
 });
 
 socket.on('player-moved', (data) => {
@@ -66,9 +67,9 @@ socket.on('player-moved', (data) => {
 
 socket.on('target-collected', (data) => {
     targets[data.targetIndex] = data.newTarget;
-    scores.set(data.playerId, data.newScore);
-    
     if (data.playerId === myPlayerId) {
+        score += 10;
+        targetsCollected++;
         updateUI();
     }
     updatePlayersList();
@@ -78,7 +79,7 @@ socket.on('player-count', (count) => {
     playerCountElement.textContent = count;
 });
 
-// Input handling
+// Input handling - same as singleplayer
 const keys = {};
 
 window.addEventListener('keydown', (e) => {
@@ -137,27 +138,25 @@ function checkCollisions() {
 }
 
 function updateUI() {
-    const myScore = scores.get(myPlayerId) || 0;
-    scoreElement.textContent = myScore;
-    targetsElement.textContent = Math.floor(myScore / 10);
+    scoreElement.textContent = score;
+    targetsElement.textContent = targetsCollected;
 }
 
 function updatePlayersList() {
     playersListElement.innerHTML = '';
     players.forEach((player, id) => {
-        const score = scores.get(id) || 0;
         const playerElement = document.createElement('div');
         playerElement.className = 'player-item';
         playerElement.innerHTML = `
             <span style="color: ${player.color}">●</span> 
-            ${player.name}: ${score} points
+            ${player.name}
             ${id === myPlayerId ? ' (You)' : ''}
         `;
         playersListElement.appendChild(playerElement);
     });
 }
 
-// Drawing functions
+// Drawing functions - EXACTLY THE SAME AS SINGLEPLAYER
 function drawBackground() {
     const gradient = ctx.createRadialGradient(
         canvas.width/2, canvas.height/2, 0,
@@ -176,7 +175,20 @@ function drawPlayers() {
         ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
         ctx.fillStyle = player.color;
         ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
+        ctx.strokeStyle = player.borderColor || '#0288D1';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // Player face
+        ctx.beginPath();
+        ctx.arc(player.x - 8, player.y - 8, 4, 0, Math.PI * 2);
+        ctx.arc(player.x + 8, player.y - 8, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#1A237E';
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(player.x, player.y + 5, 6, 0, Math.PI);
+        ctx.strokeStyle = '#1A237E';
         ctx.lineWidth = 2;
         ctx.stroke();
 
@@ -203,10 +215,10 @@ function drawTargets() {
         ctx.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
         ctx.fillStyle = target.color;
         ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
+        ctx.strokeStyle = target.borderColor || '#D32F2F';
         ctx.lineWidth = 2;
         ctx.stroke();
-
+        
         // Target cross
         ctx.beginPath();
         ctx.moveTo(target.x - target.radius/2, target.y);
