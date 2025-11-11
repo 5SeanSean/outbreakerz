@@ -10,6 +10,28 @@ const io = socketIo(server);
 // Serve static files
 app.use(express.static(path.join(__dirname)));
 
+// Serve Socket.io client explicitly
+app.get('/socket.io/socket.io.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'node_modules', 'socket.io', 'client-dist', 'socket.io.js'));
+});
+
+// Basic routes
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/multiplayer.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'multiplayer.html'));
+});
+
+app.get('/game.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'game.html'));
+});
+
+app.get('/singleplayer.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'singleplayer.html'));
+});
+
 // Store game rooms
 const rooms = new Map();
 
@@ -17,15 +39,9 @@ io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     socket.on('join-room', (roomCode, playerName) => {
-        // Leave any previous rooms
-        if (socket.roomCode) {
-            socket.leave(socket.roomCode);
-        }
-
         socket.roomCode = roomCode;
         socket.join(roomCode);
 
-        // Initialize room if it doesn't exist
         if (!rooms.has(roomCode)) {
             rooms.set(roomCode, {
                 players: new Map(),
@@ -35,8 +51,6 @@ io.on('connection', (socket) => {
         }
 
         const room = rooms.get(roomCode);
-
-        // Add player to room
         const playerId = socket.id;
         room.players.set(playerId, {
             id: playerId,
@@ -76,7 +90,6 @@ io.on('connection', (socket) => {
             player.x = data.x;
             player.y = data.y;
 
-            // Broadcast movement to other players
             socket.to(roomCode).emit('player-moved', {
                 playerId: socket.id,
                 x: data.x,
@@ -92,15 +105,12 @@ io.on('connection', (socket) => {
         const room = rooms.get(roomCode);
         
         if (room.targets[targetIndex]) {
-            // Remove target and create new one
             room.targets.splice(targetIndex, 1);
             room.targets.push(generateTarget());
 
-            // Update score
             const currentScore = room.scores.get(socket.id) || 0;
             room.scores.set(socket.id, currentScore + 10);
 
-            // Broadcast to all players in room
             io.to(roomCode).emit('target-collected', {
                 targetIndex: targetIndex,
                 newTarget: room.targets[room.targets.length - 1],
@@ -120,11 +130,9 @@ io.on('connection', (socket) => {
             room.players.delete(socket.id);
             room.scores.delete(socket.id);
 
-            // Notify other players
             socket.to(roomCode).emit('player-left', socket.id);
             io.to(roomCode).emit('player-count', room.players.size);
 
-            // Clean up empty rooms
             if (room.players.size === 0) {
                 rooms.delete(roomCode);
                 console.log(`Room ${roomCode} deleted`);
@@ -155,8 +163,8 @@ function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+const PORT = 80;
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Game available at: http://163.192.106.72:${PORT}`);
 });
