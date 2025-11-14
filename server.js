@@ -83,24 +83,31 @@ room.players.set(playerId, {
     io.to(roomCode).emit('player-count', room.players.size);
 });
 
-    socket.on('player-move', (data) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) return;
+socket.on('player-move', (data) => {
+    const roomCode = socket.roomCode;
+    console.log(`📥 player-move from ${socket.id} in room ${roomCode}:`, data);
 
-        const room = rooms.get(roomCode);
-        const player = room.players.get(socket.id);
-        
-        if (player) {
-            player.x = data.x;
-            player.y = data.y;
+    if (!roomCode || !rooms.has(roomCode)) {
+        console.warn("⚠️ Invalid room for player-move");
+        return;
+    }
 
-            socket.to(roomCode).emit('player-moved', {
-                playerId: socket.id,
-                x: data.x,
-                y: data.y
-            });
-        }
-    });
+    const room = rooms.get(roomCode);
+    const player = room.players.get(socket.id);
+    
+    if (player) {
+        player.x = data.x;
+        player.y = data.y;
+        console.log(`✅ Broadcasting player-moved for ${player.name}`);
+        socket.to(roomCode).emit('player-moved', {
+            playerId: socket.id,
+            x: data.x,
+            y: data.y
+        });
+    } else {
+        console.warn("⚠️ Player not found in room:", socket.id);
+    }
+});
 
     socket.on('collect-target', (targetIndex) => {
         const roomCode = socket.roomCode;

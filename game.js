@@ -47,10 +47,14 @@ socket.on('player-joined', (player) => {
 });
 
 socket.on('player-moved', (data) => {
+    console.log("📥 player-moved received:", data);
     const player = players.find(p => p.id === data.playerId);
     if (player) {
         player.x = data.x;
         player.y = data.y;
+        console.log("✅ Updated player position:", player.name, { x: player.x, y: player.y });
+    } else {
+        console.warn("⚠️ Player not found for player-moved:", data.playerId);
     }
 });
 
