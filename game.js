@@ -17,7 +17,7 @@ let score = 0;
 
 // Socket.io
 console.log('🔌 Connecting socket...');
-const socket = io();
+const socket = io('http://' + window.location.host);
 
 socket.on('connect', () => {
     console.log('✅ SOCKET CONNECTED, ID:', socket.id);

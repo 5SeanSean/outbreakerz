@@ -167,7 +167,7 @@ function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
-const PORT = 80;
+const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://163.192.106.72:${PORT}`);
 });
