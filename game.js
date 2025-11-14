@@ -1,3 +1,5 @@
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("✅ DOM loaded — game.js starting");
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const scoreElement = document.getElementById('score');
@@ -276,4 +278,5 @@ function leaveRoom() {
 window.addEventListener('resize', () => {
     canvas.width = Math.min(800, window.innerWidth - 40);
     canvas.height = Math.min(600, window.innerHeight - 200);
+});
 });
