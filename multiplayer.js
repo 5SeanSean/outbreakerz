@@ -9,7 +9,7 @@ function generateRoomCode() {
 
 function createRoom() {
     const roomCode = generateRoomCode();
-    const roomLink = `http://163.192.106.72:3000/game.html?room=${roomCode}`;
+    const roomLink = `http://163.192.106.72:80/game.html?room=${roomCode}`;
     
     document.getElementById('roomLink').textContent = roomLink;
     document.getElementById('roomInfo').style.display = 'block';

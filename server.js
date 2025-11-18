@@ -162,7 +162,7 @@ function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
-const PORT = 3000;
+const PORT = 80;
 const HOST = '0.0.0.0'; // Listen on all interfaces
 
 server.listen(PORT, HOST, () => {

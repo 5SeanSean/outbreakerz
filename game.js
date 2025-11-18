@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const roomCode = urlParams.get('room') || localStorage.getItem('roomCode');
 
     // Connect to your Oracle Cloud server
-    const socket = io('http://163.192.106.72:3000');
+    const socket = io('http://163.192.106.72:80');
 
     socket.on('connect', () => {
         console.log('Connected to server');
