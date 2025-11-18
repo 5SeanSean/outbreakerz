@@ -10,6 +10,7 @@ class GameEngine {
         this.keys = {};
         this.socket = null;
         this.currentPlayerId = null;
+        this.lastUpdate = Date.now();
         
         this.init();
     }
@@ -49,7 +50,7 @@ class GameEngine {
 
         socket.on('player-moved', (data) => {
             const player = this.players.find(p => p.id === data.playerId);
-            if (player) {
+            if (player && player.id !== this.currentPlayerId) {
                 player.x = data.x;
                 player.y = data.y;
             }
@@ -58,10 +59,6 @@ class GameEngine {
         socket.on('target-collected', (data) => {
             if (this.targets[data.targetIndex]) {
                 this.targets[data.targetIndex] = data.newTarget;
-            }
-            if (data.playerId === this.currentPlayerId) {
-                this.score = data.newScore;
-                this.targetsCollected = Math.floor(this.score / 10);
             }
         });
     }
@@ -77,10 +74,7 @@ class GameEngine {
     }
 
     createTargets(count) {
-        this.targets = [];
-        for (let i = 0; i < count; i++) {
-            this.targets.push(this.generateTarget());
-        }
+        this.targets = Array.from({ length: count }, () => this.generateTarget());
     }
 
     generateTarget() {
@@ -100,18 +94,10 @@ class GameEngine {
         let newX = player.x;
         let newY = player.y;
 
-        if (this.keys['arrowup'] || this.keys['w']) {
-            newY = Math.max(player.radius, player.y - player.speed);
-        }
-        if (this.keys['arrowdown'] || this.keys['s']) {
-            newY = Math.min(this.canvas.height - player.radius, player.y + player.speed);
-        }
-        if (this.keys['arrowleft'] || this.keys['a']) {
-            newX = Math.max(player.radius, player.x - player.speed);
-        }
-        if (this.keys['arrowright'] || this.keys['d']) {
-            newX = Math.min(this.canvas.width - player.radius, player.x + player.speed);
-        }
+        if (this.keys['arrowup'] || this.keys['w']) newY = Math.max(player.radius, player.y - player.speed);
+        if (this.keys['arrowdown'] || this.keys['s']) newY = Math.min(this.canvas.height - player.radius, player.y + player.speed);
+        if (this.keys['arrowleft'] || this.keys['a']) newX = Math.max(player.radius, player.x - player.speed);
+        if (this.keys['arrowright'] || this.keys['d']) newX = Math.min(this.canvas.width - player.radius, player.x + player.speed);
 
         if (newX !== player.x || newY !== player.y) {
             player.x = newX;
@@ -129,24 +115,34 @@ class GameEngine {
         const player = this.players.find(p => p.id === this.currentPlayerId);
         if (!player) return;
 
-        for (let i = this.targets.length - 1; i >= 0; i--) {
-            const target = this.targets[i];
+        this.targets.forEach((target, index) => {
             const dx = player.x - target.x;
             const dy = player.y - target.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance < player.radius + target.radius) {
                 if (this.mode === 'multiplayer' && this.socket) {
-                    this.socket.emit('collect-target', i);
+                    this.socket.emit('collect-target', index);
                 } else {
-                    this.targets.splice(i, 1);
+                    this.targets.splice(index, 1);
                     this.score += 10;
                     this.targetsCollected++;
                     this.targets.push(this.generateTarget());
                 }
-                break;
             }
-        }
+        });
+    }
+
+    draw() {
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Draw background
+        this.drawBackground();
+        
+        // Draw game objects
+        this.drawTargets();
+        this.drawPlayers();
     }
 
     drawBackground() {
@@ -172,24 +168,22 @@ class GameEngine {
             this.ctx.lineWidth = 3;
             this.ctx.stroke();
             
-            // Draw face
-            this.ctx.beginPath();
-            this.ctx.arc(player.x - 8, player.y - 8, 4, 0, Math.PI * 2);
-            this.ctx.arc(player.x + 8, player.y - 8, 4, 0, Math.PI * 2);
+            // Draw face (simple version)
             this.ctx.fillStyle = '#1A237E';
+            this.ctx.beginPath();
+            this.ctx.arc(player.x - 6, player.y - 6, 3, 0, Math.PI * 2);
+            this.ctx.arc(player.x + 6, player.y - 6, 3, 0, Math.PI * 2);
             this.ctx.fill();
             
             this.ctx.beginPath();
-            this.ctx.arc(player.x, player.y + 5, 6, 0, Math.PI);
-            this.ctx.strokeStyle = '#1A237E';
-            this.ctx.lineWidth = 2;
+            this.ctx.arc(player.x, player.y + 4, 4, 0, Math.PI);
             this.ctx.stroke();
             
             // Draw player name
             this.ctx.fillStyle = 'white';
             this.ctx.font = '12px Arial';
             this.ctx.textAlign = 'center';
-            this.ctx.fillText(player.name, player.x, player.y - player.radius - 10);
+            this.ctx.fillText(player.name, player.x, player.y - player.radius - 8);
         });
     }
 
@@ -204,31 +198,31 @@ class GameEngine {
             this.ctx.stroke();
             
             // Draw cross
+            this.ctx.strokeStyle = 'white';
+            this.ctx.lineWidth = 2;
             this.ctx.beginPath();
             this.ctx.moveTo(target.x - target.radius/2, target.y);
             this.ctx.lineTo(target.x + target.radius/2, target.y);
             this.ctx.moveTo(target.x, target.y - target.radius/2);
             this.ctx.lineTo(target.x, target.y + target.radius/2);
-            this.ctx.strokeStyle = 'white';
-            this.ctx.lineWidth = 2;
             this.ctx.stroke();
         });
     }
 
+    update() {
+        this.handleMovement();
+        this.updateUI();
+    }
+
     updateUI() {
-        // This will be implemented by the specific page
         if (typeof window.updateGameUI === 'function') {
             window.updateGameUI(this.score, this.targetsCollected, this.players);
         }
     }
 
     gameLoop() {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.drawBackground();
-        this.handleMovement();
-        this.drawTargets();
-        this.drawPlayers();
-        this.updateUI();
+        this.update();
+        this.draw();
         requestAnimationFrame(() => this.gameLoop());
     }
 

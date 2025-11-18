@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const roomCode = urlParams.get('room') || localStorage.getItem('roomCode');
 
-    const socket = io('http://' + window.location.host);
+    const socket = io();
 
     socket.on('connect', () => {
         game.setupMultiplayer(socket, socket.id);
@@ -18,7 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('playerCount').textContent = players.length;
         document.getElementById('roomCodeDisplay').textContent = roomCode;
         
-        // Update players list
         const playersList = document.getElementById('playersList');
         playersList.innerHTML = '';
         players.forEach(player => {
