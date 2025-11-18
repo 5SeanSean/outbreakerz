@@ -1,171 +1,92 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const path = require('path');
+// Add these new socket event handlers to your existing server.js:
 
-const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    },
-    pingInterval: 1000 / 128, // 128 tick rate
-    pingTimeout: 5000
+socket.on('player-shoot', (bulletData) => {
+    const roomCode = socket.roomCode;
+    if (!roomCode || !rooms.has(roomCode)) return;
+
+    const room = rooms.get(roomCode);
+    bulletData.id = Math.random().toString(36).substr(2, 9);
+    room.bullets.push(bulletData);
+    
+    socket.to(roomCode).emit('bullet-fired', bulletData);
 });
 
-// Serve static files
-app.use(express.static(__dirname));
+socket.on('zombie-damaged', (data) => {
+    const roomCode = socket.roomCode;
+    if (!roomCode || !rooms.has(roomCode)) return;
 
-// Routes
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/multiplayer.html', (req, res) => res.sendFile(path.join(__dirname, 'multiplayer.html')));
-app.get('/game.html', (req, res) => res.sendFile(path.join(__dirname, 'game.html')));
-app.get('/singleplayer.html', (req, res) => res.sendFile(path.join(__dirname, 'singleplayer.html')));
-
-// Game state management
-const rooms = new Map();
-
-// Game loop for server-side updates
-setInterval(() => {
-    rooms.forEach((room, roomCode) => {
-        io.to(roomCode).emit('game-state', {
-            players: Array.from(room.players.values()),
-            targets: room.targets
-        });
-    });
-}, 1000 / 128); // 128 ticks per second
-
-io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
-
-    socket.on('join-room', (roomCode, playerName) => {
-        if (!roomCode) {
-            console.log('No room code provided');
-            return;
-        }
-
-        socket.roomCode = roomCode;
-        socket.join(roomCode);
-
-        if (!rooms.has(roomCode)) {
-            rooms.set(roomCode, {
-                players: new Map(),
-                targets: generateTargets(5)
-            });
-        }
-
-        const room = rooms.get(roomCode);
-        
-        room.players.set(socket.id, {
-            id: socket.id,
-            name: playerName || `Player${room.players.size + 1}`,
-            x: Math.random() * 600 + 100,
-            y: Math.random() * 400 + 100,
-            radius: 20,
-            speed: 5,
-            color: getRandomColor(),
-            borderColor: '#0288D1'
-        });
-
-        console.log(`Player ${socket.id} joined room ${roomCode}`);
-        
-        // Send initial game state
-        socket.emit('game-state', {
-            players: Array.from(room.players.values()),
-            targets: room.targets
-        });
-
-        // Notify other players
-        socket.to(roomCode).emit('player-joined', room.players.get(socket.id));
-    });
-
-    socket.on('player-move', (data) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) {
-            console.log('Invalid room for movement');
-            return;
-        }
-
-        const room = rooms.get(roomCode);
-        const player = room.players.get(socket.id);
-        
-        if (player) {
-            player.x = data.x;
-            player.y = data.y;
-            
-            // Broadcast movement to other players
-            socket.to(roomCode).emit('player-moved', {
-                playerId: socket.id,
-                x: data.x,
-                y: data.y
-            });
-        }
-    });
-
-    socket.on('collect-target', (targetIndex) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) return;
-
-        const room = rooms.get(roomCode);
-        
-        if (room.targets[targetIndex]) {
-            // Replace collected target
-            room.targets[targetIndex] = generateTarget();
-            
-            io.to(roomCode).emit('target-collected', {
-                targetIndex: targetIndex,
-                newTarget: room.targets[targetIndex],
+    const room = rooms.get(roomCode);
+    const zombie = room.zombies.find(z => z.id === data.zombieId);
+    
+    if (zombie) {
+        zombie.health -= data.damage;
+        if (zombie.health <= 0) {
+            room.zombies = room.zombies.filter(z => z.id !== data.zombieId);
+            socket.to(roomCode).emit('zombie-killed', { 
+                zombieId: data.zombieId,
                 playerId: socket.id
             });
         }
-    });
-
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-        
-        const roomCode = socket.roomCode;
-        if (roomCode && rooms.has(roomCode)) {
-            const room = rooms.get(roomCode);
-            room.players.delete(socket.id);
-            
-            socket.to(roomCode).emit('player-left', socket.id);
-
-            if (room.players.size === 0) {
-                rooms.delete(roomCode);
-                console.log(`Room ${roomCode} deleted`);
-            }
-        }
-    });
-});
-
-function generateTargets(count) {
-    const targets = [];
-    for (let i = 0; i < count; i++) {
-        targets.push(generateTarget());
     }
-    return targets;
-}
-
-function generateTarget() {
-    return {
-        x: Math.random() * 700 + 50,
-        y: Math.random() * 500 + 50,
-        radius: 15,
-        color: '#FF5252',
-        borderColor: '#D32F2F'
-    };
-}
-
-function getRandomColor() {
-    const colors = ['#4FC3F7', '#FF5252', '#69F0AE', '#FFD740', '#E040FB', '#18FFFF'];
-    return colors[Math.floor(Math.random() * colors.length)];
-}
-
-const PORT = 80;
-const HOST = '0.0.0.0'; // Listen on all interfaces
-
-server.listen(PORT, HOST, () => {
-    console.log(`🚀 Server running on http://163.192.106.72:${PORT}`);
-    console.log(`📡 Also accessible via your domain if configured`);
 });
+
+socket.on('weapon-purchase', (weaponType) => {
+    const roomCode = socket.roomCode;
+    if (!roomCode || !rooms.has(roomCode)) return;
+
+    const room = rooms.get(roomCode);
+    const player = room.players.get(socket.id);
+    
+    if (player) {
+        player.weapon = weaponType;
+        socket.to(roomCode).emit('weapon-changed', {
+            playerId: socket.id,
+            weapon: weaponType
+        });
+    }
+});
+
+// Update the game state interval to include zombies and bullets
+setInterval(() => {
+    rooms.forEach((room, roomCode) => {
+        // Update zombies movement
+        room.zombies.forEach(zombie => {
+            // Simple zombie AI: move toward nearest player
+            const players = Array.from(room.players.values());
+            if (players.length > 0) {
+                const nearestPlayer = players.reduce((nearest, player) => {
+                    const dist = Math.sqrt((zombie.x - player.x) ** 2 + (zombie.y - player.y) ** 2);
+                    return dist < nearest.dist ? { player, dist } : nearest;
+                }, { player: players[0], dist: Infinity });
+                
+                const dx = nearestPlayer.player.x - zombie.x;
+                const dy = nearestPlayer.player.y - zombie.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 0) {
+                    zombie.x += (dx / distance) * zombie.speed;
+                    zombie.y += (dy / distance) * zombie.speed;
+                }
+            }
+        });
+        
+        // Update bullets
+        room.bullets = room.bullets.filter(bullet => {
+            bullet.x += bullet.vx;
+            bullet.y += bullet.vy;
+            
+            // Remove bullets that are off screen
+            return bullet.x >= 0 && bullet.x <= 800 && 
+                   bullet.y >= 0 && bullet.y <= 600;
+        });
+
+        io.to(roomCode).emit('game-state', {
+            players: Array.from(room.players.values()),
+            zombies: room.zombies,
+            bullets: room.bullets,
+            wave: room.wave || 1,
+            gameState: room.gameState || 'buy',
+            waveTimer: room.waveTimer || 0
+        });
+    });
+}, 1000 / 60); // 60 ticks per second

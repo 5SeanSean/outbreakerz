@@ -3,34 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multiplayer Game - Circle Mover</title>
+    <title>Zombie Horde: Last Stand</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="game-container">
         <div class="game-header">
-            <h1>🎮 Room: <span id="roomCodeDisplay"></span></h1>
-            <div class="player-count">Players: <span id="playerCount">1</span></div>
+            <h1>🧟 Wave: <span id="waveDisplay">1</span></h1>
+            <div class="player-count">Survivors: <span id="playerCount">1</span></div>
         </div>
 
         <canvas id="gameCanvas" width="800" height="600"></canvas>
 
         <div class="stats">
-            <div>Your Score: <span id="score">0</span></div>
-            <div>Targets Collected: <span id="targets">0</span></div>
+            <div>Zombies Killed: <span id="kills">0</span></div>
+            <div>Cash: $<span id="cash">500</span></div>
+            <div>Health: <span id="health">100</span></div>
             <div class="players-list">
-                <strong>Players:</strong>
+                <strong>Survivors:</strong>
                 <div id="playersList"></div>
             </div>
         </div>
 
-        <div class="back-btn" onclick="leaveRoom()">← Leave Room</div>
+        <!-- Buy Menu -->
+        <div id="buyMenu" class="buy-menu" style="display: none;">
+            <h3>BUY PHASE - Choose Your Weapon</h3>
+            <div class="weapons-grid">
+                <div class="weapon-card" onclick="buyWeapon('pistol')">
+                    <h4>PISTOL</h4>
+                    <p>Damage: 25</p>
+                    <p>Ammo: 12</p>
+                    <p>Cost: FREE</p>
+                </div>
+                <div class="weapon-card" onclick="buyWeapon('shotgun')">
+                    <h4>SHOTGUN</h4>
+                    <p>Damage: 40</p>
+                    <p>Ammo: 6</p>
+                    <p>Cost: $1000</p>
+                </div>
+                <div class="weapon-card" onclick="buyWeapon('rifle')">
+                    <h4>RIFLE</h4>
+                    <p>Damage: 35</p>
+                    <p>Ammo: 30</p>
+                    <p>Cost: $2000</p>
+                </div>
+            </div>
+            <div class="timer">Time left: <span id="buyTimer">30</span>s</div>
+        </div>
+
+        <div class="back-btn" onclick="leaveRoom()">← Leave Game</div>
     </div>
 
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-
     <script src="game-engine.js"></script>
-<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-<script src="game.js"></script>
+    <script src="game.js"></script>
 </body>
 </html>
