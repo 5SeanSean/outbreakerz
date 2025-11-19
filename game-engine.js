@@ -8,10 +8,8 @@ class GameEngine {
         this.bullets = [];
         this.wave = 1;
         this.zombiesKilled = 0;
-        this.cash = 500; // Starting cash
-        this.gameState = 'buy'; // 'buy' or 'fight'
-        this.waveTimer = 0;
-        this.buyTime = 30; // 30 seconds buy phase
+        this.cash = 500;
+        this.gameState = 'fight'; // Always in fight mode now
         this.keys = {};
         this.socket = null;
         this.currentPlayerId = null;
@@ -21,14 +19,23 @@ class GameEngine {
             rifle: { damage: 35, fireRate: 300, ammo: 30, maxAmmo: 30, reloadTime: 2500, cost: 2000 }
         };
         
+        this.currentWeapon = 'pistol';
+        this.lastShot = 0;
+        this.isReloading = false;
+        this.escMenuOpen = false;
+        
         this.init();
     }
 
     init() {
         this.setupEventListeners();
-        this.currentWeapon = 'pistol';
-        this.lastShot = 0;
-        this.isReloading = false;
+        this.resizeCanvas();
+        window.addEventListener('resize', () => this.resizeCanvas());
+    }
+
+    resizeCanvas() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
     }
 
     setupSinglePlayer() {
@@ -43,85 +50,93 @@ class GameEngine {
             maxHealth: 100,
             weapon: 'pistol',
             ammo: this.weapons.pistol.ammo,
-            name: 'Survivor'
+            name: 'Survivor',
+            cash: 500
         });
         this.currentPlayerId = 'player1';
-        this.startBuyPhase();
+        this.spawnZombieWave();
     }
 
-setupMultiplayer(socket, playerId) {
-    this.socket = socket;
-    this.currentPlayerId = playerId;
-    
-    // Socket event handlers
-    socket.on('game-state', (data) => {
-        this.players = data.players || [];
-        this.zombies = data.zombies || [];
-        this.bullets = data.bullets || [];
-        this.wave = data.wave || 1;
-        this.gameState = data.gameState || 'buy';
-        this.waveTimer = data.waveTimer || 0;
+    setupMultiplayer(socket, playerId) {
+        this.socket = socket;
+        this.currentPlayerId = playerId;
         
-        // Update current player's cash from server data
-        const currentPlayer = this.players.find(p => p.id === this.currentPlayerId);
-        if (currentPlayer) {
-            this.cash = currentPlayer.cash || 500;
-        }
-    });
+        socket.on('game-state', (data) => {
+            this.players = data.players || [];
+            this.zombies = data.zombies || [];
+            this.bullets = data.bullets || [];
+            this.wave = data.wave || 1;
+            
+            // Update current player's cash and weapon from server data
+            const currentPlayer = this.players.find(p => p.id === this.currentPlayerId);
+            if (currentPlayer) {
+                this.cash = currentPlayer.cash || 500;
+                this.currentWeapon = currentPlayer.weapon || 'pistol';
+            }
+        });
 
-    socket.on('player-moved', (data) => {
-        const player = this.players.find(p => p.id === data.playerId);
-        if (player && player.id !== this.currentPlayerId) {
-            player.x = data.x;
-            player.y = data.y;
-        }
-    });
+        socket.on('player-moved', (data) => {
+            const player = this.players.find(p => p.id === data.playerId);
+            if (player && player.id !== this.currentPlayerId) {
+                player.x = data.x;
+                player.y = data.y;
+            }
+        });
 
-    socket.on('bullet-fired', (bulletData) => {
-        // Only add bullets from other players
-        if (bulletData.playerId !== this.currentPlayerId) {
-            this.bullets.push(bulletData);
-        }
-    });
+        socket.on('bullet-fired', (bulletData) => {
+            if (bulletData.playerId !== this.currentPlayerId) {
+                this.bullets.push(bulletData);
+            }
+        });
 
-    socket.on('zombie-killed', (data) => {
-        this.zombies = this.zombies.filter(z => z.id !== data.zombieId);
-    });
+        socket.on('zombie-killed', (data) => {
+            this.zombies = this.zombies.filter(z => z.id !== data.zombieId);
+        });
 
-    socket.on('player-hit', (data) => {
-        const player = this.players.find(p => p.id === data.playerId);
-        if (player) {
-            player.health = data.newHealth;
-        }
-    });
+        socket.on('player-hit', (data) => {
+            const player = this.players.find(p => p.id === data.playerId);
+            if (player) {
+                player.health = data.newHealth;
+            }
+        });
 
-    socket.on('weapon-changed', (data) => {
-        const player = this.players.find(p => p.id === data.playerId);
-        if (player) {
-            player.weapon = data.weapon;
-        }
-    });
+        socket.on('weapon-changed', (data) => {
+            const player = this.players.find(p => p.id === data.playerId);
+            if (player) {
+                player.weapon = data.weapon;
+            }
+        });
 
-    socket.on('player-joined', (playerData) => {
-        // Add new player if they don't exist
-        if (!this.players.find(p => p.id === playerData.id)) {
-            this.players.push(playerData);
-        }
-    });
+        socket.on('player-joined', (playerData) => {
+            if (!this.players.find(p => p.id === playerData.id)) {
+                this.players.push(playerData);
+            }
+        });
 
-    socket.on('player-left', (playerId) => {
-        this.players = this.players.filter(p => p.id !== playerId);
-    });
-}
+        socket.on('player-left', (playerId) => {
+            this.players = this.players.filter(p => p.id !== playerId);
+        });
+    }
 
     setupEventListeners() {
         window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.toggleEscMenu();
+                return;
+            }
+            
+            if (this.escMenuOpen) return;
+            
             this.keys[e.key.toLowerCase()] = true;
             
-            // Reload with R key
             if (e.key === 'r' && !this.isReloading) {
                 this.reload();
             }
+            
+            // Number keys for weapon switching
+            if (e.key === '1') this.switchWeapon('pistol');
+            if (e.key === '2' && this.cash >= 1000) this.switchWeapon('shotgun');
+            if (e.key === '3' && this.cash >= 2000) this.switchWeapon('rifle');
         });
 
         window.addEventListener('keyup', (e) => {
@@ -129,37 +144,66 @@ setupMultiplayer(socket, playerId) {
         });
 
         this.canvas.addEventListener('click', (e) => {
-            if (this.gameState === 'fight' && !this.isReloading) {
-                this.shoot(e);
-            }
+            if (this.escMenuOpen) return;
+            this.shoot(e);
         });
 
-        // Buy weapon events
-        window.buyWeapon = (weaponType) => {
-            if (this.gameState === 'buy') {
-                this.purchaseWeapon(weaponType);
+        // Weapon button events
+        window.selectWeapon = (weaponType) => {
+            if (this.escMenuOpen) return;
+            
+            const weapon = this.weapons[weaponType];
+            if (weaponType === 'pistol' || this.cash >= weapon.cost) {
+                this.switchWeapon(weaponType);
             }
+        };
+
+        // ESC menu events
+        window.resumeGame = () => {
+            this.toggleEscMenu();
+        };
+
+        window.returnToMenu = () => {
+            if (this.mode === 'multiplayer' && this.socket) {
+                this.socket.disconnect();
+            }
+            window.location.href = 'index.html';
         };
     }
 
-    startBuyPhase() {
-        this.gameState = 'buy';
-        this.waveTimer = this.buyTime;
-        this.zombies = [];
-        this.bullets = [];
-        
-        // Reset player position to center
-        const player = this.players.find(p => p.id === this.currentPlayerId);
-        if (player) {
-            player.x = this.canvas.width / 2;
-            player.y = this.canvas.height / 2;
-            player.health = player.maxHealth; // Heal between rounds
+    toggleEscMenu() {
+        this.escMenuOpen = !this.escMenuOpen;
+        const escMenu = document.getElementById('escMenu');
+        if (escMenu) {
+            escMenu.style.display = this.escMenuOpen ? 'block' : 'none';
         }
     }
 
-    startFightPhase() {
-        this.gameState = 'fight';
-        this.spawnZombieWave();
+    switchWeapon(weaponType) {
+        const weapon = this.weapons[weaponType];
+        
+        if (weaponType !== 'pistol' && this.cash < weapon.cost) {
+            return; // Can't afford this weapon
+        }
+        
+        this.currentWeapon = weaponType;
+        
+        const player = this.players.find(p => p.id === this.currentPlayerId);
+        if (player) {
+            player.weapon = weaponType;
+            
+            // Deduct cost for non-pistol weapons
+            if (weaponType !== 'pistol') {
+                this.cash -= weapon.cost;
+                player.cash = this.cash;
+            }
+            
+            if (this.mode === 'multiplayer' && this.socket) {
+                this.socket.emit('weapon-purchase', weaponType);
+            }
+        }
+        
+        this.updateUI();
     }
 
     spawnZombieWave() {
@@ -172,7 +216,6 @@ setupMultiplayer(socket, playerId) {
     }
 
     generateZombie() {
-        // Spawn zombies from edges
         const side = Math.floor(Math.random() * 4);
         let x, y;
         
@@ -211,7 +254,7 @@ setupMultiplayer(socket, playerId) {
 
     handleMovement() {
         const player = this.players.find(p => p.id === this.currentPlayerId);
-        if (!player || this.isReloading) return;
+        if (!player || this.isReloading || this.escMenuOpen) return;
 
         let newX = player.x;
         let newY = player.y;
@@ -236,7 +279,6 @@ setupMultiplayer(socket, playerId) {
         if (!player) return;
 
         this.zombies.forEach(zombie => {
-            // Move towards player
             const dx = player.x - zombie.x;
             const dy = player.y - zombie.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -246,7 +288,6 @@ setupMultiplayer(socket, playerId) {
                 zombie.y += (dy / distance) * zombie.speed;
             }
 
-            // Check collision with player
             if (distance < player.radius + zombie.radius) {
                 this.playerTakeDamage(zombie.damage);
             }
@@ -258,14 +299,12 @@ setupMultiplayer(socket, playerId) {
             bullet.x += bullet.vx;
             bullet.y += bullet.vy;
             
-            // Remove bullets that are off screen
             if (bullet.x < 0 || bullet.x > this.canvas.width || 
                 bullet.y < 0 || bullet.y > this.canvas.height) {
                 this.bullets.splice(bulletIndex, 1);
                 return;
             }
             
-            // Check bullet-zombie collisions
             this.zombies.forEach((zombie, zombieIndex) => {
                 const dx = bullet.x - zombie.x;
                 const dy = bullet.y - zombie.y;
@@ -280,8 +319,20 @@ setupMultiplayer(socket, playerId) {
                         this.zombiesKilled++;
                         this.cash += 25;
                         
+                        // Update player cash
+                        const player = this.players.find(p => p.id === this.currentPlayerId);
+                        if (player) {
+                            player.cash = this.cash;
+                        }
+                        
                         if (this.mode === 'multiplayer' && this.socket) {
                             this.socket.emit('zombie-killed', { zombieId: zombie.id });
+                        }
+                        
+                        // Check if wave is complete
+                        if (this.zombies.length === 0) {
+                            this.wave++;
+                            this.spawnZombieWave();
                         }
                     }
                     
@@ -296,46 +347,44 @@ setupMultiplayer(socket, playerId) {
         });
     }
 
-shoot(e) {
-    const player = this.players.find(p => p.id === this.currentPlayerId);
-    if (!player || this.isReloading) return;
-    
-    const weapon = this.weapons[this.currentWeapon];
-    const now = Date.now();
-    
-    if (now - this.lastShot < weapon.fireRate) return;
-    if (weapon.ammo <= 0) {
-        this.reload();
-        return;
+    shoot(e) {
+        const player = this.players.find(p => p.id === this.currentPlayerId);
+        if (!player || this.isReloading || this.escMenuOpen) return;
+        
+        const weapon = this.weapons[this.currentWeapon];
+        const now = Date.now();
+        
+        if (now - this.lastShot < weapon.fireRate) return;
+        if (weapon.ammo <= 0) {
+            this.reload();
+            return;
+        }
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+        
+        const bullet = {
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(angle) * 10,
+            vy: Math.sin(angle) * 10,
+            damage: weapon.damage,
+            radius: 3,
+            color: '#FFD700',
+            playerId: this.currentPlayerId
+        };
+        
+        this.bullets.push(bullet);
+        weapon.ammo--;
+        this.lastShot = now;
+        
+        if (this.mode === 'multiplayer' && this.socket) {
+            this.socket.emit('player-shoot', bullet);
+        }
     }
-    
-    // Calculate direction
-    const rect = this.canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
-    
-    // Create bullet
-    const bullet = {
-        x: player.x,
-        y: player.y,
-        vx: Math.cos(angle) * 10,
-        vy: Math.sin(angle) * 10,
-        damage: weapon.damage,
-        radius: 3,
-        color: '#FFD700',
-        playerId: this.currentPlayerId // Add player ID for multiplayer
-    };
-    
-    this.bullets.push(bullet);
-    weapon.ammo--;
-    this.lastShot = now;
-    
-    if (this.mode === 'multiplayer' && this.socket) {
-        this.socket.emit('player-shoot', bullet);
-    }
-}
 
     reload() {
         const weapon = this.weapons[this.currentWeapon];
@@ -346,23 +395,6 @@ shoot(e) {
             weapon.ammo = weapon.maxAmmo;
             this.isReloading = false;
         }, weapon.reloadTime);
-    }
-
-    purchaseWeapon(weaponType) {
-        const weapon = this.weapons[weaponType];
-        if (this.cash >= weapon.cost) {
-            this.cash -= weapon.cost;
-            this.currentWeapon = weaponType;
-            
-            const player = this.players.find(p => p.id === this.currentPlayerId);
-            if (player) {
-                player.weapon = weaponType;
-            }
-            
-            if (this.mode === 'multiplayer' && this.socket) {
-                this.socket.emit('weapon-purchase', weaponType);
-            }
-        }
     }
 
     playerTakeDamage(damage) {
@@ -385,54 +417,36 @@ shoot(e) {
         this.wave = 1;
         this.zombiesKilled = 0;
         this.cash = 500;
-        this.startBuyPhase();
+        this.spawnZombieWave();
+        
+        const player = this.players.find(p => p.id === this.currentPlayerId);
+        if (player) {
+            player.health = 100;
+            player.cash = 500;
+        }
     }
 
     update() {
-        const now = Date.now();
-        const deltaTime = (now - this.lastUpdate) / 1000;
-        this.lastUpdate = now;
+        if (this.escMenuOpen) return;
         
-        if (this.gameState === 'buy') {
-            this.waveTimer -= deltaTime;
-            if (this.waveTimer <= 0) {
-                this.startFightPhase();
-            }
-        } else if (this.gameState === 'fight') {
-            this.handleMovement();
-            this.updateZombies();
-            this.updateBullets();
-            
-            // Check if wave is complete
-            if (this.zombies.length === 0) {
-                this.wave++;
-                this.startBuyPhase();
-            }
-        }
-        
+        this.handleMovement();
+        this.updateZombies();
+        this.updateBullets();
         this.updateUI();
     }
 
     draw() {
-        // Clear canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        
-        // Draw background
         this.drawBackground();
-        
-        // Draw game objects
         this.drawZombies();
         this.drawBullets();
         this.drawPlayers();
-        this.drawUI();
     }
 
     drawBackground() {
-        // Dark, apocalyptic background
         this.ctx.fillStyle = '#1a1a1a';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
-        // Grid pattern for ground
         this.ctx.strokeStyle = '#333';
         this.ctx.lineWidth = 1;
         for (let x = 0; x < this.canvas.width; x += 50) {
@@ -451,7 +465,6 @@ shoot(e) {
 
     drawPlayers() {
         this.players.forEach(player => {
-            // Draw player circle
             this.ctx.beginPath();
             this.ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
             this.ctx.fillStyle = player.color;
@@ -460,12 +473,10 @@ shoot(e) {
             this.ctx.lineWidth = 3;
             this.ctx.stroke();
             
-            // Draw health bar
             const healthPercent = player.health / player.maxHealth;
             this.ctx.fillStyle = healthPercent > 0.5 ? '#4CAF50' : healthPercent > 0.25 ? '#FF9800' : '#F44336';
             this.ctx.fillRect(player.x - 20, player.y - 35, 40 * healthPercent, 4);
             
-            // Draw player name and weapon
             this.ctx.fillStyle = 'white';
             this.ctx.font = '12px Arial';
             this.ctx.textAlign = 'center';
@@ -476,7 +487,6 @@ shoot(e) {
 
     drawZombies() {
         this.zombies.forEach(zombie => {
-            // Draw zombie circle
             this.ctx.beginPath();
             this.ctx.arc(zombie.x, zombie.y, zombie.radius, 0, Math.PI * 2);
             this.ctx.fillStyle = zombie.color;
@@ -485,12 +495,10 @@ shoot(e) {
             this.ctx.lineWidth = 2;
             this.ctx.stroke();
             
-            // Draw health bar
             const healthPercent = zombie.health / zombie.maxHealth;
             this.ctx.fillStyle = '#F44336';
             this.ctx.fillRect(zombie.x - 20, zombie.y - 35, 40 * healthPercent, 4);
             
-            // Draw zombie face (simple)
             this.ctx.fillStyle = '#1a1a1a';
             this.ctx.beginPath();
             this.ctx.arc(zombie.x - 8, zombie.y - 5, 4, 0, Math.PI * 2);
@@ -512,37 +520,6 @@ shoot(e) {
         });
     }
 
-    drawUI() {
-        // Wave and game state info
-        this.ctx.fillStyle = 'white';
-        this.ctx.font = '16px Arial';
-        this.ctx.textAlign = 'left';
-        this.ctx.fillText(`Wave: ${this.wave}`, 10, 25);
-        this.ctx.fillText(`Zombies: ${this.zombies.length}`, 10, 45);
-        
-        // Game state and timer
-        if (this.gameState === 'buy') {
-            this.ctx.fillStyle = '#4FC3F7';
-            this.ctx.fillText(`BUY PHASE: ${Math.ceil(this.waveTimer)}s`, 10, 65);
-        } else {
-            this.ctx.fillStyle = '#FF5252';
-            this.ctx.fillText('FIGHT!', 10, 65);
-        }
-        
-        // Weapon and ammo info
-        const weapon = this.weapons[this.currentWeapon];
-        this.ctx.fillText(`Weapon: ${this.currentWeapon.toUpperCase()}`, this.canvas.width - 150, 25);
-        this.ctx.fillText(`Ammo: ${weapon.ammo}/${weapon.maxAmmo}`, this.canvas.width - 150, 45);
-        if (this.isReloading) {
-            this.ctx.fillStyle = '#FFD740';
-            this.ctx.fillText('RELOADING...', this.canvas.width - 150, 65);
-        }
-        
-        // Cash
-        this.ctx.fillStyle = '#69F0AE';
-        this.ctx.fillText(`Cash: $${this.cash}`, this.canvas.width - 150, 85);
-    }
-
     updateUI() {
         if (typeof window.updateGameUI === 'function') {
             const player = this.players.find(p => p.id === this.currentPlayerId);
@@ -551,7 +528,8 @@ shoot(e) {
                 this.wave,
                 this.cash,
                 player ? player.health : 100,
-                this.players
+                this.players,
+                this.currentWeapon
             );
         }
     }
@@ -566,7 +544,6 @@ shoot(e) {
         if (this.mode === 'singleplayer') {
             this.setupSinglePlayer();
         }
-        this.lastUpdate = Date.now();
         this.gameLoop();
     }
 }

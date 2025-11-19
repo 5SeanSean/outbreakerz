@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const roomCode = urlParams.get('room') || localStorage.getItem('roomCode');
 
-    // Connect to your Oracle Cloud server
+    // Connect to server
     const socket = io('http://163.192.106.72:80');
 
     socket.on('connect', () => {
@@ -18,58 +18,71 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Disconnected from server');
     });
 
-// Updated UI update function for zombie game
-window.updateGameUI = (kills, wave, cash, health, players) => {
-    // Safe element checks
-    const killsElement = document.getElementById('kills');
-    const waveElement = document.getElementById('waveDisplay');
-    const cashElement = document.getElementById('cash');
-    const healthElement = document.getElementById('health');
-    const playerCountElement = document.getElementById('playerCount');
-    const roomCodeElement = document.getElementById('roomCodeDisplay');
-    
-    if (killsElement) killsElement.textContent = kills;
-    if (waveElement) waveElement.textContent = wave;
-    if (cashElement) cashElement.textContent = cash;
-    if (healthElement) healthElement.textContent = health;
-    if (playerCountElement) playerCountElement.textContent = players.length;
-    if (roomCodeElement) roomCodeElement.textContent = roomCode;
-    
-    const playersList = document.getElementById('playersList');
-    if (playersList) {
-        playersList.innerHTML = '';
-        players.forEach(player => {
-            const playerElement = document.createElement('div');
-            playerElement.className = 'player-item';
-            playerElement.innerHTML = `
-                <span class="player-color" style="background-color: ${player.color}"></span>
-                ${player.name} (${player.health}HP) - ${player.weapon.toUpperCase()}
-            `;
-            playersList.appendChild(playerElement);
-        });
-    }
+    // Updated UI update function
+    window.updateGameUI = (kills, wave, cash, health, players, currentWeapon) => {
+        // Update top bar stats
+        document.getElementById('kills').textContent = kills;
+        document.getElementById('wave').textContent = wave;
+        document.getElementById('cash').textContent = cash;
+        document.getElementById('health').textContent = health;
+        document.getElementById('roomCode').textContent = roomCode;
 
-    // Show/hide buy menu based on game state
-    const buyMenu = document.getElementById('buyMenu');
-    const buyTimerElement = document.getElementById('buyTimer');
-    const gameState = game.gameState;
-    
-    if (buyMenu && buyTimerElement) {
-        if (gameState === 'buy') {
-            buyMenu.style.display = 'block';
-            buyTimerElement.textContent = Math.ceil(game.waveTimer);
+        // Update weapon buttons
+        document.querySelectorAll('.weapon-btn').forEach(btn => {
+            btn.classList.remove('active', 'disabled');
+        });
+
+        const pistolBtn = document.getElementById('pistolBtn');
+        const shotgunBtn = document.getElementById('shotgunBtn');
+        const rifleBtn = document.getElementById('rifleBtn');
+
+        if (currentWeapon === 'pistol') pistolBtn.classList.add('active');
+        if (currentWeapon === 'shotgun') shotgunBtn.classList.add('active');
+        if (currentWeapon === 'rifle') rifleBtn.classList.add('active');
+
+        // Disable weapons that can't be afforded
+        if (cash < 1000) shotgunBtn.classList.add('disabled');
+        if (cash < 2000) rifleBtn.classList.add('disabled');
+
+        // Update players panel for multiplayer
+        const playersPanel = document.getElementById('playersPanel');
+        const playersList = document.getElementById('playersList');
+        const playerCount = document.getElementById('playerCount');
+
+        if (players.length > 1) {
+            playersPanel.style.display = 'block';
+            playerCount.textContent = players.length;
+            
+            playersList.innerHTML = '';
+            players.forEach(player => {
+                const playerElement = document.createElement('div');
+                playerElement.className = 'player-item';
+                playerElement.innerHTML = `
+                    <span class="player-color" style="background-color: ${player.color}"></span>
+                    ${player.name} (${player.health}HP) - ${player.weapon.toUpperCase()}
+                `;
+                playersList.appendChild(playerElement);
+            });
         } else {
-            buyMenu.style.display = 'none';
+            playersPanel.style.display = 'none';
         }
+    };
+
+    game.start();
+});
+
+// ESC Menu functions
+window.resumeGame = () => {
+    // Handled in game-engine
+};
+
+window.returnToMenu = () => {
+    if (confirm('Are you sure you want to return to the menu?')) {
+        window.location.href = 'index.html';
     }
 };
 
-    game.start();
-
-    window.leaveRoom = () => {
-        if (confirm('Are you sure you want to leave the game?')) {
-            socket.disconnect();
-            window.location.href = 'multiplayer.html';
-        }
-    };
-});
+// Weapon selection
+window.selectWeapon = (weaponType) => {
+    // Handled in game-engine
+};
