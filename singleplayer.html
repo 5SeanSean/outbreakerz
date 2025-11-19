@@ -8,44 +8,58 @@
 </head>
 <body>
     <div class="game-container">
-        <h1>🧟 Practice Mode</h1>
+        <canvas id="gameCanvas"></canvas>
         
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-
-        <div class="stats">
-            <div>Zombies Killed: <span id="kills">0</span></div>
-            <div>Wave: <span id="wave">1</span></div>
-            <div>Cash: $<span id="cash">500</span></div>
-            <div>Health: <span id="health">100</span></div>
-        </div>
-
-        <!-- Buy Menu for singleplayer -->
-        <div id="buyMenu" class="buy-menu" style="display: none;">
-            <h3>BUY PHASE - Choose Your Weapon</h3>
-            <div class="weapons-grid">
-                <div class="weapon-card" onclick="buyWeapon('pistol')">
-                    <h4>PISTOL</h4>
-                    <p>Damage: 25</p>
-                    <p>Ammo: 12</p>
-                    <p>Cost: FREE</p>
+        <!-- Game UI Overlay -->
+        <div class="game-ui">
+            <!-- Top Bar -->
+            <div class="top-bar">
+                <div class="stat-group">
+                    <div class="stat-item">
+                        <span>🧟 KILLS:</span>
+                        <span id="kills" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>🌊 WAVE:</span>
+                        <span id="wave" class="stat-value">1</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>❤️ HEALTH:</span>
+                        <span id="health" class="health-value">100</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>💰 CASH:</span>
+                        <span id="cash" class="cash-value">500</span>
+                    </div>
                 </div>
-                <div class="weapon-card" onclick="buyWeapon('shotgun')">
-                    <h4>SHOTGUN</h4>
-                    <p>Damage: 40</p>
-                    <p>Ammo: 6</p>
-                    <p>Cost: $1000</p>
-                </div>
-                <div class="weapon-card" onclick="buyWeapon('rifle')">
-                    <h4>RIFLE</h4>
-                    <p>Damage: 35</p>
-                    <p>Ammo: 30</p>
-                    <p>Cost: $2000</p>
+                <div class="stat-item">
+                    <span>🎮 MODE:</span>
+                    <span class="stat-value">PRACTICE</span>
                 </div>
             </div>
-            <div class="timer">Time left: <span id="buyTimer">30</span>s</div>
+
+            <!-- Weapon Selector -->
+            <div class="weapon-selector">
+                <button class="weapon-btn active" onclick="selectWeapon('pistol')" id="pistolBtn">
+                    PISTOL (1)
+                </button>
+                <button class="weapon-btn" onclick="selectWeapon('shotgun')" id="shotgunBtn">
+                    SHOTGUN (2) - $1000
+                </button>
+                <button class="weapon-btn" onclick="selectWeapon('rifle')" id="rifleBtn">
+                    RIFLE (3) - $2000
+                </button>
+            </div>
         </div>
 
-        <div class="back-btn" onclick="window.location.href='index.html'">← Back to Menu</div>
+        <!-- ESC Menu -->
+        <div id="escMenu" class="esc-menu">
+            <h2>PAUSED</h2>
+            <div class="menu-options">
+                <button class="menu-btn" onclick="resumeGame()">RESUME GAME</button>
+                <button class="menu-btn" onclick="returnToMenu()">RETURN TO MENU</button>
+            </div>
+        </div>
     </div>
 
     <script src="game-engine.js"></script>

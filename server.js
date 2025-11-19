@@ -26,86 +26,17 @@ app.get('/singleplayer.html', (req, res) => res.sendFile(path.join(__dirname, 's
 // Game state management
 const rooms = new Map();
 
-// Game loop for server-side updates
 setInterval(() => {
     rooms.forEach((room, roomCode) => {
-        // Update zombies movement
-        if (room.gameState === 'fight') {
-            room.zombies.forEach(zombie => {
-                // Simple zombie AI: move toward nearest player
-                const players = Array.from(room.players.values());
-                if (players.length > 0) {
-                    const nearestPlayer = players.reduce((nearest, player) => {
-                        const dist = Math.sqrt((zombie.x - player.x) ** 2 + (zombie.y - player.y) ** 2);
-                        return dist < nearest.dist ? { player, dist } : nearest;
-                    }, { player: players[0], dist: Infinity });
-                    
-                    const dx = nearestPlayer.player.x - zombie.x;
-                    const dy = nearestPlayer.player.y - zombie.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (distance > 0) {
-                        zombie.x += (dx / distance) * zombie.speed;
-                        zombie.y += (dy / distance) * zombie.speed;
-                    }
-                    
-                    // Check zombie-player collisions
-                    if (distance < zombie.radius + nearestPlayer.player.radius) {
-                        nearestPlayer.player.health -= zombie.damage;
-                        if (nearestPlayer.player.health <= 0) {
-                            nearestPlayer.player.health = 0;
-                            // Handle player death
-                        }
-                    }
-                }
-            });
-            
-            // Update bullets
-            room.bullets = room.bullets.filter(bullet => {
-                bullet.x += bullet.vx;
-                bullet.y += bullet.vy;
-                
-                // Remove bullets that are off screen
-                return bullet.x >= 0 && bullet.x <= 800 && 
-                       bullet.y >= 0 && bullet.y <= 600;
-            });
-            
-            // Update wave timer
-            if (room.waveTimer > 0) {
-                room.waveTimer -= 1/60; // 60 FPS
-                if (room.waveTimer <= 0) {
-                    // Switch from buy to fight or vice versa
-                    if (room.gameState === 'buy') {
-                        room.gameState = 'fight';
-                        spawnZombieWave(room);
-                    } else {
-                        room.gameState = 'buy';
-                        room.wave++;
-                        room.waveTimer = 30; // 30 second buy phase
-                        resetPlayers(room);
-                    }
-                }
-            }
-            
-            // Check if wave is complete
-            if (room.gameState === 'fight' && room.zombies.length === 0) {
-                room.gameState = 'buy';
-                room.wave++;
-                room.waveTimer = 30;
-                resetPlayers(room);
-            }
-        }
-
         io.to(roomCode).emit('game-state', {
             players: Array.from(room.players.values()),
             zombies: room.zombies || [],
             bullets: room.bullets || [],
             wave: room.wave || 1,
-            gameState: room.gameState || 'buy',
-            waveTimer: room.waveTimer || 30
+            gameState: room.gameState || 'fight'
         });
     });
-}, 1000 / 60); // 60 ticks per second
+}, 1000 / 20);
 
 function spawnZombieWave(room) {
     const zombieCount = 5 + (room.wave * 2);
@@ -114,30 +45,18 @@ function spawnZombieWave(room) {
     for (let i = 0; i < zombieCount; i++) {
         room.zombies.push(generateZombie(room.wave));
     }
+    console.log(`Spawned ${zombieCount} zombies for wave ${room.wave} in room`);
 }
 
 function generateZombie(wave) {
-    // Spawn zombies from edges
     const side = Math.floor(Math.random() * 4);
     let x, y;
     
     switch(side) {
-        case 0: // top
-            x = Math.random() * 800;
-            y = -50;
-            break;
-        case 1: // right
-            x = 850;
-            y = Math.random() * 600;
-            break;
-        case 2: // bottom
-            x = Math.random() * 800;
-            y = 650;
-            break;
-        case 3: // left
-            x = -50;
-            y = Math.random() * 600;
-            break;
+        case 0: x = Math.random() * 800; y = -50; break;
+        case 1: x = 850; y = Math.random() * 600; break;
+        case 2: x = Math.random() * 800; y = 650; break;
+        case 3: x = -50; y = Math.random() * 600; break;
     }
     
     return {
@@ -171,93 +90,96 @@ function getRandomColor() {
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    socket.on('join-room', (roomCode, playerName) => {
-        if (!roomCode) {
-            console.log('No room code provided');
-            return;
-        }
+socket.on('join-room', (roomCode, playerName) => {
+    if (!roomCode) {
+        console.log('No room code provided');
+        return;
+    }
 
-        socket.roomCode = roomCode;
-        socket.join(roomCode);
+    socket.roomCode = roomCode;
+    socket.join(roomCode);
 
-        if (!rooms.has(roomCode)) {
-            rooms.set(roomCode, {
-                players: new Map(),
-                zombies: [],
-                bullets: [],
-                wave: 1,
-                gameState: 'buy',
-                waveTimer: 30,
-                cash: 500
-            });
-        }
-
-        const room = rooms.get(roomCode);
-        
-        room.players.set(socket.id, {
-            id: socket.id,
-            name: playerName || `Survivor${room.players.size + 1}`,
-            x: Math.random() * 600 + 100,
-            y: Math.random() * 400 + 100,
-            radius: 20,
-            speed: 5,
-            color: getRandomColor(),
-            borderColor: '#0288D1',
-            health: 100,
-            maxHealth: 100,
-            weapon: 'pistol',
-            cash: 500
+    if (!rooms.has(roomCode)) {
+        rooms.set(roomCode, {
+            players: new Map(),
+            zombies: [],
+            bullets: [],
+            wave: 1,
+            gameState: 'fight', // Start in fight mode immediately
+            waveTimer: 0,
+            gameLoop: null
         });
-
-        console.log(`Player ${socket.id} joined room ${roomCode}`);
         
-        // Send initial game state
-        socket.emit('game-state', {
-            players: Array.from(room.players.values()),
-            zombies: room.zombies,
-            bullets: room.bullets,
-            wave: room.wave,
-            gameState: room.gameState,
-            waveTimer: room.waveTimer
+        const room = rooms.get(roomCode);
+        startGameLoop(room); // Start game loop for this room
+        spawnZombieWave(room); // Spawn initial zombies
+    }
+
+    const room = rooms.get(roomCode);
+    
+    room.players.set(socket.id, {
+        id: socket.id,
+        name: playerName || `Survivor${room.players.size + 1}`,
+        x: 400, // Start in center
+        y: 300,
+        radius: 20,
+        speed: 5,
+        color: getRandomColor(),
+        borderColor: '#0288D1',
+        health: 100,
+        maxHealth: 100,
+        weapon: 'pistol',
+        cash: 500
+    });
+
+    console.log(`Player ${socket.id} joined room ${roomCode}`);
+    
+    // Send initial game state
+    socket.emit('game-state', {
+        players: Array.from(room.players.values()),
+        zombies: room.zombies,
+        bullets: room.bullets,
+        wave: room.wave,
+        gameState: room.gameState
+    });
+
+    // Notify other players
+    socket.to(roomCode).emit('player-joined', room.players.get(socket.id));
+});
+
+socket.on('player-move', (data) => {
+    const roomCode = socket.roomCode;
+    if (!roomCode || !rooms.has(roomCode)) {
+        console.log('Invalid room for movement');
+        return;
+    }
+
+    const room = rooms.get(roomCode);
+    const player = room.players.get(socket.id);
+    
+    if (player) { // Removed the gameState check - allow movement anytime
+        player.x = data.x;
+        player.y = data.y;
+        
+        // Broadcast movement to other players
+        socket.to(roomCode).emit('player-moved', {
+            playerId: socket.id,
+            x: data.x,
+            y: data.y
         });
+    }
+});
 
-        // Notify other players
-        socket.to(roomCode).emit('player-joined', room.players.get(socket.id));
-    });
+socket.on('player-shoot', (bulletData) => {
+    const roomCode = socket.roomCode;
+    if (!roomCode || !rooms.has(roomCode)) return;
 
-    socket.on('player-move', (data) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) {
-            console.log('Invalid room for movement');
-            return;
-        }
-
-        const room = rooms.get(roomCode);
-        const player = room.players.get(socket.id);
-        
-        if (player && room.gameState === 'fight') {
-            player.x = data.x;
-            player.y = data.y;
-            
-            // Broadcast movement to other players
-            socket.to(roomCode).emit('player-moved', {
-                playerId: socket.id,
-                x: data.x,
-                y: data.y
-            });
-        }
-    });
-
-    socket.on('player-shoot', (bulletData) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) return;
-
-        const room = rooms.get(roomCode);
-        bulletData.id = Math.random().toString(36).substr(2, 9);
-        room.bullets.push(bulletData);
-        
-        socket.to(roomCode).emit('bullet-fired', bulletData);
-    });
+    const room = rooms.get(roomCode);
+    bulletData.id = Math.random().toString(36).substr(2, 9);
+    room.bullets.push(bulletData);
+    
+    socket.to(roomCode).emit('bullet-fired', bulletData);
+});
 
     socket.on('zombie-damaged', (data) => {
         const roomCode = socket.roomCode;
@@ -345,23 +267,67 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+    
+    const roomCode = socket.roomCode;
+    if (roomCode && rooms.has(roomCode)) {
+        const room = rooms.get(roomCode);
+        room.players.delete(socket.id);
         
-        const roomCode = socket.roomCode;
-        if (roomCode && rooms.has(roomCode)) {
-            const room = rooms.get(roomCode);
-            room.players.delete(socket.id);
-            
-            socket.to(roomCode).emit('player-left', socket.id);
+        socket.to(roomCode).emit('player-left', socket.id);
 
-            if (room.players.size === 0) {
-                rooms.delete(roomCode);
-                console.log(`Room ${roomCode} deleted`);
+        if (room.players.size === 0) {
+            // Clean up game loop
+            if (room.gameLoop) {
+                clearInterval(room.gameLoop);
             }
+            rooms.delete(roomCode);
+            console.log(`Room ${roomCode} deleted`);
         }
-    });
+    }
 });
+});
+// Add this function to server.js
+function startGameLoop(room) {
+    if (room.gameLoop) return; // Prevent multiple game loops
+    
+    room.gameLoop = setInterval(() => {
+        if (room.gameState === 'fight') {
+            // Spawn zombies if needed
+            if (room.zombies.length === 0) {
+                spawnZombieWave(room);
+            }
+            
+            // Update zombies movement
+            room.zombies.forEach(zombie => {
+                const players = Array.from(room.players.values());
+                if (players.length > 0) {
+                    const nearestPlayer = players.reduce((nearest, player) => {
+                        const dist = Math.sqrt((zombie.x - player.x) ** 2 + (zombie.y - player.y) ** 2);
+                        return dist < nearest.dist ? { player, dist } : nearest;
+                    }, { player: players[0], dist: Infinity });
+                    
+                    const dx = nearestPlayer.player.x - zombie.x;
+                    const dy = nearestPlayer.player.y - zombie.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance > 0) {
+                        zombie.x += (dx / distance) * zombie.speed;
+                        zombie.y += (dy / distance) * zombie.speed;
+                    }
+                }
+            });
+            
+            // Update bullets
+            room.bullets = room.bullets.filter(bullet => {
+                bullet.x += bullet.vx;
+                bullet.y += bullet.vy;
+                return bullet.x >= 0 && bullet.x <= 800 && bullet.y >= 0 && bullet.y <= 600;
+            });
+        }
+    }, 1000 / 60); // 60 FPS
+}
 
 const PORT = 80;
 const HOST = '0.0.0.0';
