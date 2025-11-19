@@ -11,16 +11,19 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('connect', () => {
         console.log('Connected to server');
         game.setupMultiplayer(socket, socket.id);
-        socket.emit('join-room', roomCode, 'Player' + Math.floor(Math.random() * 1000));
+        socket.emit('join-room', roomCode, 'Survivor' + Math.floor(Math.random() * 1000));
     });
 
     socket.on('disconnect', () => {
         console.log('Disconnected from server');
     });
 
-    window.updateGameUI = (score, targetsCollected, players) => {
-        document.getElementById('score').textContent = score;
-        document.getElementById('targets').textContent = targetsCollected;
+    // Updated UI update function for zombie game
+    window.updateGameUI = (kills, wave, cash, health, players) => {
+        document.getElementById('kills').textContent = kills;
+        document.getElementById('waveDisplay').textContent = wave;
+        document.getElementById('cash').textContent = cash;
+        document.getElementById('health').textContent = health;
         document.getElementById('playerCount').textContent = players.length;
         document.getElementById('roomCodeDisplay').textContent = roomCode;
         
@@ -31,16 +34,26 @@ document.addEventListener('DOMContentLoaded', () => {
             playerElement.className = 'player-item';
             playerElement.innerHTML = `
                 <span class="player-color" style="background-color: ${player.color}"></span>
-                ${player.name}
+                ${player.name} (${player.health}HP) - ${player.weapon.toUpperCase()}
             `;
             playersList.appendChild(playerElement);
         });
+
+        // Show/hide buy menu based on game state
+        const buyMenu = document.getElementById('buyMenu');
+        const gameState = game.gameState;
+        if (gameState === 'buy') {
+            buyMenu.style.display = 'block';
+            document.getElementById('buyTimer').textContent = Math.ceil(game.waveTimer);
+        } else {
+            buyMenu.style.display = 'none';
+        }
     };
 
     game.start();
 
     window.leaveRoom = () => {
-        if (confirm('Are you sure you want to leave the room?')) {
+        if (confirm('Are you sure you want to leave the game?')) {
             socket.disconnect();
             window.location.href = 'multiplayer.html';
         }
