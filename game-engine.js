@@ -49,34 +49,70 @@ class GameEngine {
         this.startBuyPhase();
     }
 
-    setupMultiplayer(socket, playerId) {
-        this.socket = socket;
-        this.currentPlayerId = playerId;
+setupMultiplayer(socket, playerId) {
+    this.socket = socket;
+    this.currentPlayerId = playerId;
+    
+    // Socket event handlers
+    socket.on('game-state', (data) => {
+        this.players = data.players || [];
+        this.zombies = data.zombies || [];
+        this.bullets = data.bullets || [];
+        this.wave = data.wave || 1;
+        this.gameState = data.gameState || 'buy';
+        this.waveTimer = data.waveTimer || 0;
         
-        socket.on('game-state', (data) => {
-            this.players = data.players || [];
-            this.zombies = data.zombies || [];
-            this.bullets = data.bullets || [];
-            this.wave = data.wave || 1;
-            this.gameState = data.gameState || 'buy';
-            this.waveTimer = data.waveTimer || 0;
-            this.cash = data.cash || 500;
-        });
+        // Update current player's cash from server data
+        const currentPlayer = this.players.find(p => p.id === this.currentPlayerId);
+        if (currentPlayer) {
+            this.cash = currentPlayer.cash || 500;
+        }
+    });
 
-        socket.on('zombie-killed', (data) => {
-            this.zombies = this.zombies.filter(z => z.id !== data.zombieId);
-            if (data.playerId === this.currentPlayerId) {
-                this.cash += 25; // Cash reward
-            }
-        });
+    socket.on('player-moved', (data) => {
+        const player = this.players.find(p => p.id === data.playerId);
+        if (player && player.id !== this.currentPlayerId) {
+            player.x = data.x;
+            player.y = data.y;
+        }
+    });
 
-        socket.on('player-hit', (data) => {
-            const player = this.players.find(p => p.id === data.playerId);
-            if (player) {
-                player.health = data.newHealth;
-            }
-        });
-    }
+    socket.on('bullet-fired', (bulletData) => {
+        // Only add bullets from other players
+        if (bulletData.playerId !== this.currentPlayerId) {
+            this.bullets.push(bulletData);
+        }
+    });
+
+    socket.on('zombie-killed', (data) => {
+        this.zombies = this.zombies.filter(z => z.id !== data.zombieId);
+    });
+
+    socket.on('player-hit', (data) => {
+        const player = this.players.find(p => p.id === data.playerId);
+        if (player) {
+            player.health = data.newHealth;
+        }
+    });
+
+    socket.on('weapon-changed', (data) => {
+        const player = this.players.find(p => p.id === data.playerId);
+        if (player) {
+            player.weapon = data.weapon;
+        }
+    });
+
+    socket.on('player-joined', (playerData) => {
+        // Add new player if they don't exist
+        if (!this.players.find(p => p.id === playerData.id)) {
+            this.players.push(playerData);
+        }
+    });
+
+    socket.on('player-left', (playerId) => {
+        this.players = this.players.filter(p => p.id !== playerId);
+    });
+}
 
     setupEventListeners() {
         window.addEventListener('keydown', (e) => {
@@ -260,45 +296,46 @@ class GameEngine {
         });
     }
 
-    shoot(e) {
-        const player = this.players.find(p => p.id === this.currentPlayerId);
-        if (!player || this.isReloading) return;
-        
-        const weapon = this.weapons[this.currentWeapon];
-        const now = Date.now();
-        
-        if (now - this.lastShot < weapon.fireRate) return;
-        if (weapon.ammo <= 0) {
-            this.reload();
-            return;
-        }
-        
-        // Calculate direction
-        const rect = this.canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        
-        const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
-        
-        // Create bullet
-        const bullet = {
-            x: player.x,
-            y: player.y,
-            vx: Math.cos(angle) * 10,
-            vy: Math.sin(angle) * 10,
-            damage: weapon.damage,
-            radius: 3,
-            color: '#FFD700'
-        };
-        
-        this.bullets.push(bullet);
-        weapon.ammo--;
-        this.lastShot = now;
-        
-        if (this.mode === 'multiplayer' && this.socket) {
-            this.socket.emit('player-shoot', bullet);
-        }
+shoot(e) {
+    const player = this.players.find(p => p.id === this.currentPlayerId);
+    if (!player || this.isReloading) return;
+    
+    const weapon = this.weapons[this.currentWeapon];
+    const now = Date.now();
+    
+    if (now - this.lastShot < weapon.fireRate) return;
+    if (weapon.ammo <= 0) {
+        this.reload();
+        return;
     }
+    
+    // Calculate direction
+    const rect = this.canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+    
+    // Create bullet
+    const bullet = {
+        x: player.x,
+        y: player.y,
+        vx: Math.cos(angle) * 10,
+        vy: Math.sin(angle) * 10,
+        damage: weapon.damage,
+        radius: 3,
+        color: '#FFD700',
+        playerId: this.currentPlayerId // Add player ID for multiplayer
+    };
+    
+    this.bullets.push(bullet);
+    weapon.ammo--;
+    this.lastShot = now;
+    
+    if (this.mode === 'multiplayer' && this.socket) {
+        this.socket.emit('player-shoot', bullet);
+    }
+}
 
     reload() {
         const weapon = this.weapons[this.currentWeapon];

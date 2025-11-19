@@ -18,16 +18,25 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Disconnected from server');
     });
 
-    // Updated UI update function for zombie game
-    window.updateGameUI = (kills, wave, cash, health, players) => {
-        document.getElementById('kills').textContent = kills;
-        document.getElementById('waveDisplay').textContent = wave;
-        document.getElementById('cash').textContent = cash;
-        document.getElementById('health').textContent = health;
-        document.getElementById('playerCount').textContent = players.length;
-        document.getElementById('roomCodeDisplay').textContent = roomCode;
-        
-        const playersList = document.getElementById('playersList');
+// Updated UI update function for zombie game
+window.updateGameUI = (kills, wave, cash, health, players) => {
+    // Safe element checks
+    const killsElement = document.getElementById('kills');
+    const waveElement = document.getElementById('waveDisplay');
+    const cashElement = document.getElementById('cash');
+    const healthElement = document.getElementById('health');
+    const playerCountElement = document.getElementById('playerCount');
+    const roomCodeElement = document.getElementById('roomCodeDisplay');
+    
+    if (killsElement) killsElement.textContent = kills;
+    if (waveElement) waveElement.textContent = wave;
+    if (cashElement) cashElement.textContent = cash;
+    if (healthElement) healthElement.textContent = health;
+    if (playerCountElement) playerCountElement.textContent = players.length;
+    if (roomCodeElement) roomCodeElement.textContent = roomCode;
+    
+    const playersList = document.getElementById('playersList');
+    if (playersList) {
         playersList.innerHTML = '';
         players.forEach(player => {
             const playerElement = document.createElement('div');
@@ -38,17 +47,22 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             playersList.appendChild(playerElement);
         });
+    }
 
-        // Show/hide buy menu based on game state
-        const buyMenu = document.getElementById('buyMenu');
-        const gameState = game.gameState;
+    // Show/hide buy menu based on game state
+    const buyMenu = document.getElementById('buyMenu');
+    const buyTimerElement = document.getElementById('buyTimer');
+    const gameState = game.gameState;
+    
+    if (buyMenu && buyTimerElement) {
         if (gameState === 'buy') {
             buyMenu.style.display = 'block';
-            document.getElementById('buyTimer').textContent = Math.ceil(game.waveTimer);
+            buyTimerElement.textContent = Math.ceil(game.waveTimer);
         } else {
             buyMenu.style.display = 'none';
         }
-    };
+    }
+};
 
     game.start();
 

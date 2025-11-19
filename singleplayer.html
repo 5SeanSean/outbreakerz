@@ -3,23 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Single Player - Circle Mover</title>
+    <title>Practice Mode - Zombie Horde</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="game-container">
-        <h1>🎮 Single Player</h1>
+        <h1>🧟 Practice Mode</h1>
         
         <canvas id="gameCanvas" width="800" height="600"></canvas>
 
         <div class="stats">
-            <div>Score: <span id="score">0</span></div>
-            <div>Targets Collected: <span id="targets">0</span></div>
+            <div>Zombies Killed: <span id="kills">0</span></div>
+            <div>Wave: <span id="wave">1</span></div>
+            <div>Cash: $<span id="cash">500</span></div>
+            <div>Health: <span id="health">100</span></div>
+        </div>
+
+        <!-- Buy Menu for singleplayer -->
+        <div id="buyMenu" class="buy-menu" style="display: none;">
+            <h3>BUY PHASE - Choose Your Weapon</h3>
+            <div class="weapons-grid">
+                <div class="weapon-card" onclick="buyWeapon('pistol')">
+                    <h4>PISTOL</h4>
+                    <p>Damage: 25</p>
+                    <p>Ammo: 12</p>
+                    <p>Cost: FREE</p>
+                </div>
+                <div class="weapon-card" onclick="buyWeapon('shotgun')">
+                    <h4>SHOTGUN</h4>
+                    <p>Damage: 40</p>
+                    <p>Ammo: 6</p>
+                    <p>Cost: $1000</p>
+                </div>
+                <div class="weapon-card" onclick="buyWeapon('rifle')">
+                    <h4>RIFLE</h4>
+                    <p>Damage: 35</p>
+                    <p>Ammo: 30</p>
+                    <p>Cost: $2000</p>
+                </div>
+            </div>
+            <div class="timer">Time left: <span id="buyTimer">30</span>s</div>
         </div>
 
         <div class="back-btn" onclick="window.location.href='index.html'">← Back to Menu</div>
     </div>
-<script src="game-engine.js"></script>
+
+    <script src="game-engine.js"></script>
     <script src="singleplayer.js"></script>
 </body>
 </html>
