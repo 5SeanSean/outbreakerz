@@ -9,7 +9,7 @@ class GameEngine {
         this.wave = 1;
         this.zombiesKilled = 0;
         this.cash = 500;
-        this.gameState = 'fight'; // Always in fight mode now
+        this.gameState = 'fight';
         this.keys = {};
         this.socket = null;
         this.currentPlayerId = null;
@@ -19,10 +19,26 @@ class GameEngine {
             rifle: { damage: 35, fireRate: 300, ammo: 30, maxAmmo: 30, reloadTime: 2500, cost: 2000 }
         };
         
+        // Client-side prediction and interpolation
+        this.pendingInputs = [];
+        this.serverState = {
+            players: [],
+            zombies: [],
+            bullets: []
+        };
+        this.lastProcessedInput = 0;
+        this.inputSequenceNumber = 0;
+        
         this.currentWeapon = 'pistol';
         this.lastShot = 0;
         this.isReloading = false;
         this.escMenuOpen = false;
+        
+        // Fixed timestep for consistent 60Hz
+        this.fps = 60;
+        this.deltaTime = 1000 / this.fps;
+        this.lastFrameTime = 0;
+        this.accumulator = 0;
         
         this.init();
     }
@@ -62,6 +78,17 @@ class GameEngine {
         this.currentPlayerId = playerId;
         
         socket.on('game-state', (data) => {
+            // Store server state for reconciliation
+            this.serverState = {
+                players: JSON.parse(JSON.stringify(data.players || [])),
+                zombies: JSON.parse(JSON.stringify(data.zombies || [])),
+                bullets: JSON.parse(JSON.stringify(data.bullets || []))
+            };
+            
+            // Reconcile player positions
+            this.reconcileWithServer();
+            
+            // Update local state with server data (except current player position)
             this.players = data.players || [];
             this.zombies = data.zombies || [];
             this.bullets = data.bullets || [];
@@ -116,6 +143,26 @@ class GameEngine {
         socket.on('player-left', (playerId) => {
             this.players = this.players.filter(p => p.id !== playerId);
         });
+    }
+
+    reconcileWithServer() {
+        const serverPlayer = this.serverState.players.find(p => p.id === this.currentPlayerId);
+        const localPlayer = this.players.find(p => p.id === this.currentPlayerId);
+        
+        if (serverPlayer && localPlayer) {
+            // Small correction if we're too far off from server
+            const dx = serverPlayer.x - localPlayer.x;
+            const dy = serverPlayer.y - localPlayer.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 10) { // Only correct if significantly different
+                localPlayer.x = serverPlayer.x;
+                localPlayer.y = serverPlayer.y;
+                
+                // Clear pending inputs since we've been corrected
+                this.pendingInputs = [];
+            }
+        }
     }
 
     setupEventListeners() {
@@ -206,6 +253,43 @@ class GameEngine {
         this.updateUI();
     }
 
+    processInput() {
+        const player = this.players.find(p => p.id === this.currentPlayerId);
+        if (!player || this.isReloading || this.escMenuOpen) return;
+
+        let moved = false;
+        let newX = player.x;
+        let newY = player.y;
+
+        if (this.keys['w']) { newY = Math.max(player.radius, player.y - player.speed); moved = true; }
+        if (this.keys['s']) { newY = Math.min(this.canvas.height - player.radius, player.y + player.speed); moved = true; }
+        if (this.keys['a']) { newX = Math.max(player.radius, player.x - player.speed); moved = true; }
+        if (this.keys['d']) { newX = Math.min(this.canvas.width - player.radius, player.x + player.speed); moved = true; }
+
+        if (moved) {
+            player.x = newX;
+            player.y = newY;
+
+            if (this.mode === 'multiplayer' && this.socket) {
+                // Store input for reconciliation
+                const input = {
+                    sequence: this.inputSequenceNumber++,
+                    x: newX,
+                    y: newY,
+                    timestamp: Date.now()
+                };
+                this.pendingInputs.push(input);
+                
+                // Send to server
+                this.socket.emit('player-move', { 
+                    x: newX, 
+                    y: newY,
+                    sequence: input.sequence 
+                });
+            }
+        }
+    }
+
     spawnZombieWave() {
         const zombieCount = 5 + (this.wave * 2);
         this.zombies = [];
@@ -250,28 +334,6 @@ class GameEngine {
             borderColor: '#2E7D32',
             damage: 20
         };
-    }
-
-    handleMovement() {
-        const player = this.players.find(p => p.id === this.currentPlayerId);
-        if (!player || this.isReloading || this.escMenuOpen) return;
-
-        let newX = player.x;
-        let newY = player.y;
-
-        if (this.keys['w']) newY = Math.max(player.radius, player.y - player.speed);
-        if (this.keys['s']) newY = Math.min(this.canvas.height - player.radius, player.y + player.speed);
-        if (this.keys['a']) newX = Math.max(player.radius, player.x - player.speed);
-        if (this.keys['d']) newX = Math.min(this.canvas.width - player.radius, player.x + player.speed);
-
-        if (newX !== player.x || newY !== player.y) {
-            player.x = newX;
-            player.y = newY;
-
-            if (this.mode === 'multiplayer' && this.socket) {
-                this.socket.emit('player-move', { x: newX, y: newY });
-            }
-        }
     }
 
     updateZombies() {
@@ -429,10 +491,14 @@ class GameEngine {
     update() {
         if (this.escMenuOpen) return;
         
-        this.handleMovement();
+        this.processInput();
         this.updateZombies();
         this.updateBullets();
         this.updateUI();
+    }
+
+    fixedUpdate() {
+        this.update();
     }
 
     draw() {
@@ -534,16 +600,33 @@ class GameEngine {
         }
     }
 
-    gameLoop() {
-        this.update();
+    gameLoop(currentTime) {
+        // Fixed timestep game loop for consistent 60Hz
+        if (!this.lastFrameTime) this.lastFrameTime = currentTime;
+        
+        const deltaTime = currentTime - this.lastFrameTime;
+        this.lastFrameTime = currentTime;
+        
+        // Prevent spiral of death
+        const frameTime = Math.min(deltaTime, 250);
+        this.accumulator += frameTime;
+        
+        // Process fixed updates
+        while (this.accumulator >= this.deltaTime) {
+            this.fixedUpdate();
+            this.accumulator -= this.deltaTime;
+        }
+        
+        // Always render
         this.draw();
-        requestAnimationFrame(() => this.gameLoop());
+        
+        requestAnimationFrame((time) => this.gameLoop(time));
     }
 
     start() {
         if (this.mode === 'singleplayer') {
             this.setupSinglePlayer();
         }
-        this.gameLoop();
+        this.gameLoop(0);
     }
 }
