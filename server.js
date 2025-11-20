@@ -62,3 +62,60 @@ function generateZombie(wave) {
         damage: 20
     };
 }
+// server.js - Fixed Zombie Health Bug
+// Add this to your existing server code:
+
+// Fix zombie hit handling
+socket.on('zombie-hit', (data) => {
+    const room = rooms.get(data.roomCode);
+    if (!room) return;
+
+    const zombie = room.zombies.find(z => z.id === data.zombieId);
+    if (zombie) {
+        // Only update health if zombie exists and isn't already dead
+        if (zombie.health > 0) {
+            zombie.health -= data.damage;
+            
+            if (zombie.health <= 0) {
+                // Remove dead zombie
+                room.zombies = room.zombies.filter(z => z.id !== data.zombieId);
+                
+                // Reward shooter
+                const shooter = room.players.find(p => p.id === data.shooterId);
+                if (shooter) {
+                    shooter.cash += 25;
+                }
+                
+                // Broadcast zombie death
+                io.to(data.roomCode).emit('zombie-killed', {
+                    zombieId: data.zombieId,
+                    shooterId: data.shooterId
+                });
+                
+                // Check if wave is complete
+                if (room.zombies.length === 0) {
+                    room.wave++;
+                    spawnZombieWave(room);
+                    io.to(data.roomCode).emit('wave-complete', {
+                        wave: room.wave,
+                        zombies: room.zombies
+                    });
+                }
+            } else {
+                // Broadcast damage update
+                io.to(data.roomCode).emit('zombie-damaged', {
+                    zombieId: data.zombieId,
+                    health: zombie.health,
+                    maxHealth: zombie.maxHealth
+                });
+            }
+            
+            // Send updated game state
+            io.to(data.roomCode).emit('game-state', {
+                players: room.players,
+                zombies: room.zombies,
+                wave: room.wave
+            });
+        }
+    }
+});
