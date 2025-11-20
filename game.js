@@ -6,16 +6,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const roomCode = urlParams.get('room') || localStorage.getItem('roomCode');
 
     // Connect to server
-    const socket = io('http://163.192.106.72:80');
+    const socket = io('http://163.192.106.72:80', {
+        transports: ['websocket', 'polling']
+    });
 
     socket.on('connect', () => {
-        console.log('Connected to server');
+        console.log('Connected to server with ID:', socket.id);
+        
+        // Setup multiplayer FIRST
         game.setupMultiplayer(socket, socket.id);
-        socket.emit('join-room', roomCode, 'Survivor' + Math.floor(Math.random() * 1000));
+        
+        // Join room
+        const playerName = 'Survivor' + Math.floor(Math.random() * 1000);
+        socket.emit('join-room', roomCode, playerName);
     });
 
     socket.on('disconnect', () => {
         console.log('Disconnected from server');
+    });
+
+    // Wait for initial game state before starting
+    socket.once('game-state', () => {
+        console.log('Received initial game state, starting game loop');
+        game.start();
     });
 
     // Updated UI update function
@@ -67,8 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
             playersPanel.style.display = 'none';
         }
     };
-
-    game.start();
 });
 
 // ESC Menu functions
