@@ -23,9 +23,8 @@ class GameEngine {
         this.lastShot = 0;
         this.isReloading = false;
         this.escMenuOpen = false;
-        
-        // Client-side game state
         this.lastFrameTime = 0;
+        this.gameStarted = false;
         
         this.init();
     }
@@ -49,6 +48,7 @@ class GameEngine {
             radius: 20,
             speed: 5,
             color: '#4FC3F7',
+            borderColor: '#0288D1',
             health: 100,
             maxHealth: 100,
             weapon: 'pistol',
@@ -64,39 +64,110 @@ class GameEngine {
         this.socket = socket;
         this.currentPlayerId = playerId;
         
-        // Only sync other players and zombies from server
+        console.log('Setting up multiplayer for player:', playerId);
+        
+        // Handle game state updates from server
         socket.on('game-state', (data) => {
-            // Update other players (not current player)
-            const otherPlayers = (data.players || []).filter(p => p.id !== this.currentPlayerId);
-            this.players = this.players.filter(p => p.id === this.currentPlayerId).concat(otherPlayers);
+            console.log('Received game state:', data);
             
-            // Update zombies from server (server authoritative for zombies)
-            this.zombies = data.zombies || [];
-            this.wave = data.wave || 1;
-            
-            // Update current player's cash and weapon
-            const serverPlayer = data.players?.find(p => p.id === this.currentPlayerId);
-            if (serverPlayer) {
-                this.cash = serverPlayer.cash || this.cash;
-                this.currentWeapon = serverPlayer.weapon || this.currentWeapon;
+            // Update ALL players from server (including our own)
+            if (data.players && data.players.length > 0) {
+                // Map server players to client format
+                const serverPlayers = data.players.map(p => ({
+                    ...p,
+                    borderColor: this.getBorderColor(p.color)
+                }));
                 
-                // Update local player with server data (except position)
-                const localPlayer = this.players.find(p => p.id === this.currentPlayerId);
-                if (localPlayer) {
-                    localPlayer.cash = this.cash;
-                    localPlayer.weapon = this.currentWeapon;
-                    localPlayer.health = serverPlayer.health;
+                // Find our local player in the server data
+                const localPlayerData = serverPlayers.find(p => p.id === this.currentPlayerId);
+                
+                if (localPlayerData) {
+                    // Check if we already have a local player
+                    const existingLocalPlayer = this.players.find(p => p.id === this.currentPlayerId);
+                    
+                    if (existingLocalPlayer) {
+                        // Update local player with server data (but keep client position)
+                        existingLocalPlayer.health = localPlayerData.health;
+                        existingLocalPlayer.weapon = localPlayerData.weapon;
+                        existingLocalPlayer.cash = localPlayerData.cash;
+                        existingLocalPlayer.color = localPlayerData.color;
+                        existingLocalPlayer.borderColor = localPlayerData.borderColor;
+                        existingLocalPlayer.name = localPlayerData.name;
+                        
+                        // Update cash and weapon
+                        this.cash = localPlayerData.cash;
+                        this.currentWeapon = localPlayerData.weapon;
+                    } else {
+                        // First time - create local player
+                        this.players.push(localPlayerData);
+                        this.cash = localPlayerData.cash;
+                        this.currentWeapon = localPlayerData.weapon;
+                        console.log('Local player created:', localPlayerData);
+                    }
+                    
+                    // Add/update other players
+                    serverPlayers.forEach(serverPlayer => {
+                        if (serverPlayer.id !== this.currentPlayerId) {
+                            const existingPlayer = this.players.find(p => p.id === serverPlayer.id);
+                            if (existingPlayer) {
+                                // Update existing remote player
+                                Object.assign(existingPlayer, serverPlayer);
+                            } else {
+                                // Add new remote player
+                                this.players.push(serverPlayer);
+                            }
+                        }
+                    });
+                    
+                    // Remove players that are no longer in server data
+                    this.players = this.players.filter(p => 
+                        serverPlayers.some(sp => sp.id === p.id)
+                    );
                 }
             }
+            
+            // Update zombies from server
+            if (data.zombies) {
+                data.zombies.forEach(serverZombie => {
+                    const localZombie = this.zombies.find(z => z.id === serverZombie.id);
+                    if (localZombie) {
+                        // Smooth interpolation for existing zombies
+                        localZombie.targetX = serverZombie.x;
+                        localZombie.targetY = serverZombie.y;
+                        localZombie.health = serverZombie.health;
+                        localZombie.maxHealth = serverZombie.maxHealth;
+                        localZombie.speed = serverZombie.speed;
+                    } else {
+                        // Add new zombies
+                        this.zombies.push({
+                            ...serverZombie,
+                            targetX: serverZombie.x,
+                            targetY: serverZombie.y
+                        });
+                    }
+                });
+                
+                // Remove zombies that no longer exist on server
+                this.zombies = this.zombies.filter(z => 
+                    data.zombies.some(sz => sz.id === z.id)
+                );
+            }
+            
+            this.wave = data.wave || 1;
         });
 
         socket.on('player-joined', (playerData) => {
+            console.log('Player joined:', playerData);
             if (!this.players.find(p => p.id === playerData.id)) {
-                this.players.push(playerData);
+                this.players.push({
+                    ...playerData,
+                    borderColor: this.getBorderColor(playerData.color)
+                });
             }
         });
 
         socket.on('player-left', (playerId) => {
+            console.log('Player left:', playerId);
             this.players = this.players.filter(p => p.id !== playerId);
         });
 
@@ -117,8 +188,11 @@ class GameEngine {
         });
 
         socket.on('zombie-update', (data) => {
-            // Server is authoritative for zombies
-            this.zombies = data.zombies;
+            this.zombies = data.zombies.map(z => ({
+                ...z,
+                targetX: z.x,
+                targetY: z.y
+            }));
             this.wave = data.wave;
         });
 
@@ -128,6 +202,18 @@ class GameEngine {
                 player.health = 0;
             }
         });
+    }
+
+    getBorderColor(color) {
+        const colors = {
+            '#4FC3F7': '#0288D1',
+            '#FF5252': '#C62828',
+            '#69F0AE': '#00C853',
+            '#FFD740': '#F9A825',
+            '#E040FB': '#AA00FF',
+            '#18FFFF': '#00B8D4'
+        };
+        return colors[color] || '#000000';
     }
 
     setupEventListeners() {
@@ -194,16 +280,17 @@ class GameEngine {
             return;
         }
         
+        // Only charge once when switching to a new weapon
+        if (weaponType !== this.currentWeapon && weaponType !== 'pistol') {
+            this.cash -= weapon.cost;
+        }
+        
         this.currentWeapon = weaponType;
         
         const player = this.players.find(p => p.id === this.currentPlayerId);
         if (player) {
             player.weapon = weaponType;
-            
-            if (weaponType !== 'pistol') {
-                this.cash -= weapon.cost;
-                player.cash = this.cash;
-            }
+            player.cash = this.cash;
             
             if (this.mode === 'multiplayer' && this.socket) {
                 this.socket.emit('player-action', {
@@ -281,6 +368,8 @@ class GameEngine {
             id: Math.random().toString(36).substr(2, 9),
             x: x,
             y: y,
+            targetX: x,
+            targetY: y,
             radius: 25,
             speed: 1 + (this.wave * 0.1),
             health: 50 + (this.wave * 10),
@@ -296,15 +385,28 @@ class GameEngine {
         if (!player) return;
 
         this.zombies.forEach(zombie => {
+            if (this.mode === 'multiplayer') {
+                // Client-side interpolation for smooth 60fps movement
+                const lerpFactor = 0.3; // Increased for faster interpolation
+                zombie.x += (zombie.targetX - zombie.x) * lerpFactor;
+                zombie.y += (zombie.targetY - zombie.y) * lerpFactor;
+            } else {
+                // Singleplayer: full client control
+                const dx = player.x - zombie.x;
+                const dy = player.y - zombie.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 0) {
+                    zombie.x += (dx / distance) * zombie.speed;
+                    zombie.y += (dy / distance) * zombie.speed;
+                }
+            }
+
+            // Check collision with local player
             const dx = player.x - zombie.x;
             const dy = player.y - zombie.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             
-            if (distance > 0) {
-                zombie.x += (dx / distance) * zombie.speed;
-                zombie.y += (dy / distance) * zombie.speed;
-            }
-
             if (distance < player.radius + zombie.radius) {
                 this.playerTakeDamage(zombie.damage);
             }
@@ -312,44 +414,45 @@ class GameEngine {
     }
 
     updateBullets() {
-        this.bullets.forEach((bullet, bulletIndex) => {
+        this.bullets = this.bullets.filter((bullet) => {
             bullet.x += bullet.vx;
             bullet.y += bullet.vy;
             
             if (bullet.x < 0 || bullet.x > this.canvas.width || 
                 bullet.y < 0 || bullet.y > this.canvas.height) {
-                this.bullets.splice(bulletIndex, 1);
-                return;
+                return false;
             }
             
-            this.zombies.forEach((zombie, zombieIndex) => {
+            let bulletHit = false;
+            this.zombies = this.zombies.filter((zombie) => {
                 const dx = bullet.x - zombie.x;
                 const dy = bullet.y - zombie.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
-                if (distance < zombie.radius) {
+                if (distance < zombie.radius && !bulletHit) {
                     zombie.health -= bullet.damage;
-                    this.bullets.splice(bulletIndex, 1);
+                    bulletHit = true;
                     
                     if (zombie.health <= 0) {
-                        this.zombies.splice(zombieIndex, 1);
-                        this.zombiesKilled++;
-                        this.cash += 25;
-                        
-                        const player = this.players.find(p => p.id === this.currentPlayerId);
-                        if (player) {
-                            player.cash = this.cash;
+                        if (bullet.playerId === this.currentPlayerId) {
+                            this.zombiesKilled++;
+                            this.cash += 25;
+                            
+                            const player = this.players.find(p => p.id === this.currentPlayerId);
+                            if (player) {
+                                player.cash = this.cash;
+                            }
+                            
+                            if (this.mode === 'multiplayer' && this.socket) {
+                                this.socket.emit('player-action', {
+                                    type: 'zombie-killed',
+                                    zombieId: zombie.id,
+                                    cash: this.cash
+                                });
+                            }
                         }
                         
-                        if (this.mode === 'multiplayer' && this.socket) {
-                            this.socket.emit('player-action', {
-                                type: 'zombie-killed',
-                                zombieId: zombie.id,
-                                cash: this.cash
-                            });
-                        }
-                        
-                        if (this.zombies.length === 0) {
+                        if (this.zombies.length === 1 && bullet.playerId === this.currentPlayerId) {
                             this.wave++;
                             if (this.mode === 'multiplayer' && this.socket) {
                                 this.socket.emit('player-action', {
@@ -360,9 +463,14 @@ class GameEngine {
                                 this.spawnZombieWave();
                             }
                         }
+                        
+                        return false;
                     }
                 }
+                return true;
             });
+            
+            return !bulletHit;
         });
     }
 
@@ -424,7 +532,7 @@ class GameEngine {
         const player = this.players.find(p => p.id === this.currentPlayerId);
         if (!player) return;
         
-        player.health -= damage;
+        player.health = Math.max(0, player.health - damage);
         
         if (player.health <= 0) {
             this.gameOver();
@@ -441,21 +549,23 @@ class GameEngine {
 
     gameOver() {
         alert(`Game Over! You survived ${this.wave} waves and killed ${this.zombiesKilled} zombies.`);
-        this.wave = 1;
-        this.zombiesKilled = 0;
-        this.cash = 500;
-        this.spawnZombieWave();
         
-        const player = this.players.find(p => p.id === this.currentPlayerId);
-        if (player) {
-            player.health = 100;
-            player.cash = 500;
-        }
-        
-        if (this.mode === 'multiplayer' && this.socket) {
+        if (this.mode === 'singleplayer') {
+            this.wave = 1;
+            this.zombiesKilled = 0;
+            this.cash = 500;
+            this.spawnZombieWave();
+            
+            const player = this.players.find(p => p.id === this.currentPlayerId);
+            if (player) {
+                player.health = 100;
+                player.cash = 500;
+            }
+        } else if (this.mode === 'multiplayer' && this.socket) {
             this.socket.emit('player-action', {
                 type: 'player-died'
             });
+            window.location.href = 'index.html';
         }
     }
 
@@ -463,9 +573,7 @@ class GameEngine {
         if (this.escMenuOpen) return;
         
         this.handleMovement();
-        if (this.mode === 'singleplayer') {
-            this.updateZombies();
-        }
+        this.updateZombies();
         this.updateBullets();
         this.updateUI();
     }
@@ -504,7 +612,7 @@ class GameEngine {
             this.ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
             this.ctx.fillStyle = player.color;
             this.ctx.fill();
-            this.ctx.strokeStyle = player.borderColor;
+            this.ctx.strokeStyle = player.borderColor || '#000000';
             this.ctx.lineWidth = 3;
             this.ctx.stroke();
             
@@ -513,9 +621,10 @@ class GameEngine {
             this.ctx.fillRect(player.x - 20, player.y - 35, 40 * healthPercent, 4);
             
             this.ctx.fillStyle = 'white';
-            this.ctx.font = '12px Arial';
+            this.ctx.font = 'bold 12px Arial';
             this.ctx.textAlign = 'center';
             this.ctx.fillText(player.name, player.x, player.y - player.radius - 20);
+            this.ctx.font = '10px Arial';
             this.ctx.fillText(player.weapon.toUpperCase(), player.x, player.y - player.radius - 8);
         });
     }
@@ -540,6 +649,8 @@ class GameEngine {
             this.ctx.arc(zombie.x + 8, zombie.y - 5, 4, 0, Math.PI * 2);
             this.ctx.fill();
             
+            this.ctx.strokeStyle = '#1a1a1a';
+            this.ctx.lineWidth = 2;
             this.ctx.beginPath();
             this.ctx.arc(zombie.x, zombie.y + 5, 6, 0, Math.PI);
             this.ctx.stroke();
@@ -580,10 +691,14 @@ class GameEngine {
     }
 
     start() {
-        if (this.mode === 'singleplayer') {
-            this.setupSinglePlayer();
+        if (!this.gameStarted) {
+            this.gameStarted = true;
+            if (this.mode === 'singleplayer') {
+                this.setupSinglePlayer();
+            }
+            this.lastFrameTime = performance.now();
+            this.gameLoop(this.lastFrameTime);
+            console.log('Game loop started');
         }
-        this.lastFrameTime = performance.now();
-        this.gameLoop(this.lastFrameTime);
     }
 }
