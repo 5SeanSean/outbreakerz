@@ -19,19 +19,13 @@ class GameEngine {
             rifle: { damage: 35, fireRate: 300, ammo: 30, maxAmmo: 30, reloadTime: 2500, cost: 2000 }
         };
         
-        // Simplified prediction - no complex reconciliation
-        this.pendingMoves = [];
-        
         this.currentWeapon = 'pistol';
         this.lastShot = 0;
         this.isReloading = false;
         this.escMenuOpen = false;
         
-        // Consistent 60Hz
-        this.fps = 60;
-        this.deltaTime = 1000 / this.fps;
+        // Client-side game state
         this.lastFrameTime = 0;
-        this.accumulator = 0;
         
         this.init();
     }
@@ -70,50 +64,29 @@ class GameEngine {
         this.socket = socket;
         this.currentPlayerId = playerId;
         
+        // Only sync other players and zombies from server
         socket.on('game-state', (data) => {
-            this.players = data.players || [];
+            // Update other players (not current player)
+            const otherPlayers = (data.players || []).filter(p => p.id !== this.currentPlayerId);
+            this.players = this.players.filter(p => p.id === this.currentPlayerId).concat(otherPlayers);
+            
+            // Update zombies from server (server authoritative for zombies)
             this.zombies = data.zombies || [];
-            this.bullets = data.bullets || [];
             this.wave = data.wave || 1;
-            this.gameState = data.gameState || 'fight';
             
             // Update current player's cash and weapon
-            const currentPlayer = this.players.find(p => p.id === this.currentPlayerId);
-            if (currentPlayer) {
-                this.cash = currentPlayer.cash || 500;
-                this.currentWeapon = currentPlayer.weapon || 'pistol';
-            }
-        });
-
-        socket.on('player-moved', (data) => {
-            const player = this.players.find(p => p.id === data.playerId);
-            if (player && player.id !== this.currentPlayerId) {
-                player.x = data.x;
-                player.y = data.y;
-            }
-        });
-
-        socket.on('bullet-fired', (bulletData) => {
-            if (bulletData.playerId !== this.currentPlayerId) {
-                this.bullets.push(bulletData);
-            }
-        });
-
-        socket.on('zombie-killed', (data) => {
-            this.zombies = this.zombies.filter(z => z.id !== data.zombieId);
-        });
-
-        socket.on('player-hit', (data) => {
-            const player = this.players.find(p => p.id === data.playerId);
-            if (player) {
-                player.health = data.newHealth;
-            }
-        });
-
-        socket.on('weapon-changed', (data) => {
-            const player = this.players.find(p => p.id === data.playerId);
-            if (player) {
-                player.weapon = data.weapon;
+            const serverPlayer = data.players?.find(p => p.id === this.currentPlayerId);
+            if (serverPlayer) {
+                this.cash = serverPlayer.cash || this.cash;
+                this.currentWeapon = serverPlayer.weapon || this.currentWeapon;
+                
+                // Update local player with server data (except position)
+                const localPlayer = this.players.find(p => p.id === this.currentPlayerId);
+                if (localPlayer) {
+                    localPlayer.cash = this.cash;
+                    localPlayer.weapon = this.currentWeapon;
+                    localPlayer.health = serverPlayer.health;
+                }
             }
         });
 
@@ -127,14 +100,37 @@ class GameEngine {
             this.players = this.players.filter(p => p.id !== playerId);
         });
 
-        socket.on('wave-updated', (data) => {
+        socket.on('player-update', (data) => {
+            const player = this.players.find(p => p.id === data.playerId);
+            if (player && player.id !== this.currentPlayerId) {
+                player.x = data.x;
+                player.y = data.y;
+                player.health = data.health;
+                player.weapon = data.weapon;
+            }
+        });
+
+        socket.on('bullet-created', (bulletData) => {
+            if (bulletData.playerId !== this.currentPlayerId) {
+                this.bullets.push(bulletData);
+            }
+        });
+
+        socket.on('zombie-update', (data) => {
+            // Server is authoritative for zombies
+            this.zombies = data.zombies;
             this.wave = data.wave;
-            this.zombies = data.zombies || [];
+        });
+
+        socket.on('player-died', (data) => {
+            const player = this.players.find(p => p.id === data.playerId);
+            if (player) {
+                player.health = 0;
+            }
         });
     }
 
     setupEventListeners() {
-        // Key events
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.toggleEscMenu();
@@ -149,7 +145,6 @@ class GameEngine {
                 this.reload();
             }
             
-            // Number keys for weapon switching
             if (e.key === '1') this.switchWeapon('pistol');
             if (e.key === '2' && this.cash >= 1000) this.switchWeapon('shotgun');
             if (e.key === '3' && this.cash >= 2000) this.switchWeapon('rifle');
@@ -159,23 +154,19 @@ class GameEngine {
             this.keys[e.key.toLowerCase()] = false;
         });
 
-        // Mouse events - use mousedown instead of click for better responsiveness
         this.canvas.addEventListener('mousedown', (e) => {
             if (this.escMenuOpen) return;
             this.shoot(e);
         });
 
-        // Weapon button events
         window.selectWeapon = (weaponType) => {
             if (this.escMenuOpen) return;
-            
             const weapon = this.weapons[weaponType];
             if (weaponType === 'pistol' || this.cash >= weapon.cost) {
                 this.switchWeapon(weaponType);
             }
         };
 
-        // ESC menu events
         window.resumeGame = () => {
             this.toggleEscMenu();
         };
@@ -215,7 +206,11 @@ class GameEngine {
             }
             
             if (this.mode === 'multiplayer' && this.socket) {
-                this.socket.emit('weapon-purchase', weaponType);
+                this.socket.emit('player-action', {
+                    type: 'weapon-change',
+                    weapon: weaponType,
+                    cash: this.cash
+                });
             }
         }
         
@@ -252,7 +247,12 @@ class GameEngine {
             player.y = newY;
 
             if (this.mode === 'multiplayer' && this.socket) {
-                this.socket.emit('player-move', { x: newX, y: newY });
+                this.socket.emit('player-move', { 
+                    x: newX, 
+                    y: newY,
+                    health: player.health,
+                    weapon: player.weapon
+                });
             }
         }
     }
@@ -271,22 +271,10 @@ class GameEngine {
         let x, y;
         
         switch(side) {
-            case 0: // top
-                x = Math.random() * this.canvas.width;
-                y = -50;
-                break;
-            case 1: // right
-                x = this.canvas.width + 50;
-                y = Math.random() * this.canvas.height;
-                break;
-            case 2: // bottom
-                x = Math.random() * this.canvas.width;
-                y = this.canvas.height + 50;
-                break;
-            case 3: // left
-                x = -50;
-                y = Math.random() * this.canvas.height;
-                break;
+            case 0: x = Math.random() * this.canvas.width; y = -50; break;
+            case 1: x = this.canvas.width + 50; y = Math.random() * this.canvas.height; break;
+            case 2: x = Math.random() * this.canvas.width; y = this.canvas.height + 50; break;
+            case 3: x = -50; y = Math.random() * this.canvas.height; break;
         }
         
         return {
@@ -328,14 +316,12 @@ class GameEngine {
             bullet.x += bullet.vx;
             bullet.y += bullet.vy;
             
-            // Remove bullets that are off screen
             if (bullet.x < 0 || bullet.x > this.canvas.width || 
                 bullet.y < 0 || bullet.y > this.canvas.height) {
                 this.bullets.splice(bulletIndex, 1);
                 return;
             }
             
-            // Check bullet-zombie collisions
             this.zombies.forEach((zombie, zombieIndex) => {
                 const dx = bullet.x - zombie.x;
                 const dy = bullet.y - zombie.y;
@@ -350,23 +336,29 @@ class GameEngine {
                         this.zombiesKilled++;
                         this.cash += 25;
                         
-                        // Update player cash
                         const player = this.players.find(p => p.id === this.currentPlayerId);
                         if (player) {
                             player.cash = this.cash;
                         }
                         
                         if (this.mode === 'multiplayer' && this.socket) {
-                            this.socket.emit('zombie-killed', { 
+                            this.socket.emit('player-action', {
+                                type: 'zombie-killed',
                                 zombieId: zombie.id,
-                                playerId: this.currentPlayerId
+                                cash: this.cash
                             });
                         }
                         
-                        // Check if wave is complete - only in singleplayer
-                        if (this.mode === 'singleplayer' && this.zombies.length === 0) {
+                        if (this.zombies.length === 0) {
                             this.wave++;
-                            this.spawnZombieWave();
+                            if (this.mode === 'multiplayer' && this.socket) {
+                                this.socket.emit('player-action', {
+                                    type: 'wave-complete',
+                                    wave: this.wave
+                                });
+                            } else {
+                                this.spawnZombieWave();
+                            }
                         }
                     }
                 }
@@ -387,7 +379,6 @@ class GameEngine {
             return;
         }
         
-        // Fixed mouse coordinate calculation for fullscreen
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
@@ -398,6 +389,7 @@ class GameEngine {
         const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
         
         const bullet = {
+            id: Math.random().toString(36).substr(2, 9),
             x: player.x,
             y: player.y,
             vx: Math.cos(angle) * 10,
@@ -439,7 +431,11 @@ class GameEngine {
         }
         
         if (this.mode === 'multiplayer' && this.socket) {
-            this.socket.emit('player-damage', damage);
+            this.socket.emit('player-action', {
+                type: 'damage-taken',
+                damage: damage,
+                health: player.health
+            });
         }
     }
 
@@ -455,19 +451,23 @@ class GameEngine {
             player.health = 100;
             player.cash = 500;
         }
+        
+        if (this.mode === 'multiplayer' && this.socket) {
+            this.socket.emit('player-action', {
+                type: 'player-died'
+            });
+        }
     }
 
     update() {
         if (this.escMenuOpen) return;
         
         this.handleMovement();
-        this.updateZombies();
+        if (this.mode === 'singleplayer') {
+            this.updateZombies();
+        }
         this.updateBullets();
         this.updateUI();
-    }
-
-    fixedUpdate() {
-        this.update();
     }
 
     draw() {
@@ -570,23 +570,10 @@ class GameEngine {
     }
 
     gameLoop(currentTime) {
-        // Fixed timestep game loop for consistent 60Hz
-        if (!this.lastFrameTime) this.lastFrameTime = currentTime;
-        
         const deltaTime = currentTime - this.lastFrameTime;
         this.lastFrameTime = currentTime;
         
-        // Prevent spiral of death
-        const frameTime = Math.min(deltaTime, 250);
-        this.accumulator += frameTime;
-        
-        // Process fixed updates
-        while (this.accumulator >= this.deltaTime) {
-            this.fixedUpdate();
-            this.accumulator -= this.deltaTime;
-        }
-        
-        // Always render
+        this.update();
         this.draw();
         
         requestAnimationFrame((time) => this.gameLoop(time));
@@ -596,6 +583,7 @@ class GameEngine {
         if (this.mode === 'singleplayer') {
             this.setupSinglePlayer();
         }
-        this.gameLoop(0);
+        this.lastFrameTime = performance.now();
+        this.gameLoop(this.lastFrameTime);
     }
 }

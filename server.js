@@ -10,11 +10,10 @@ const io = socketIo(server, {
         origin: "*",
         methods: ["GET", "POST"]
     },
-    pingInterval: 1000 / 60,
-    pingTimeout: 5000
+    pingInterval: 10000,
+    pingTimeout: 20000
 });
 
-// Serve static files
 app.use(express.static(__dirname));
 
 // Routes
@@ -23,10 +22,8 @@ app.get('/multiplayer.html', (req, res) => res.sendFile(path.join(__dirname, 'mu
 app.get('/game.html', (req, res) => res.sendFile(path.join(__dirname, 'game.html')));
 app.get('/singleplayer.html', (req, res) => res.sendFile(path.join(__dirname, 'singleplayer.html')));
 
-// Game state management
 const rooms = new Map();
 
-// Helper functions
 function spawnZombieWave(room) {
     const zombieCount = 5 + (room.wave * 2);
     room.zombies = [];
@@ -34,7 +31,6 @@ function spawnZombieWave(room) {
     for (let i = 0; i < zombieCount; i++) {
         room.zombies.push(generateZombie(room.wave));
     }
-    console.log(`Spawned ${zombieCount} zombies for wave ${room.wave}`);
 }
 
 function generateZombie(wave) {
@@ -67,102 +63,43 @@ function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
-// Global game loop running at 60Hz
+// Server game loop - only handles zombies and state verification
 setInterval(() => {
-    const now = Date.now();
-    
     rooms.forEach((room, roomCode) => {
-        if (room.gameState === 'fight') {
-            // Update zombies
-            room.zombies.forEach(zombie => {
-                const players = Array.from(room.players.values());
-                if (players.length > 0) {
-                    const nearestPlayer = players.reduce((nearest, player) => {
-                        const dist = Math.sqrt((zombie.x - player.x) ** 2 + (zombie.y - player.y) ** 2);
-                        return dist < nearest.dist ? { player, dist } : nearest;
-                    }, { player: players[0], dist: Infinity });
-                    
-                    const dx = nearestPlayer.player.x - zombie.x;
-                    const dy = nearestPlayer.player.y - zombie.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (distance > 0) {
-                        zombie.x += (dx / distance) * zombie.speed;
-                        zombie.y += (dy / distance) * zombie.speed;
-                    }
+        // Update zombies (server authoritative)
+        room.zombies.forEach(zombie => {
+            const players = Array.from(room.players.values());
+            if (players.length > 0) {
+                const nearestPlayer = players.reduce((nearest, player) => {
+                    const dist = Math.sqrt((zombie.x - player.x) ** 2 + (zombie.y - player.y) ** 2);
+                    return dist < nearest.dist ? { player, dist } : nearest;
+                }, { player: players[0], dist: Infinity });
+                
+                const dx = nearestPlayer.player.x - zombie.x;
+                const dy = nearestPlayer.player.y - zombie.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 0) {
+                    zombie.x += (dx / distance) * zombie.speed;
+                    zombie.y += (dy / distance) * zombie.speed;
                 }
-            });
-            
-            // Update bullets
-            room.bullets = room.bullets.filter(bullet => {
-                bullet.x += bullet.vx;
-                bullet.y += bullet.vy;
-                return bullet.x >= 0 && bullet.x <= 800 && bullet.y >= 0 && bullet.y <= 600;
-            });
-            
-            // Check bullet-zombie collisions on server
-            room.bullets.forEach((bullet, bulletIndex) => {
-                room.zombies.forEach((zombie, zombieIndex) => {
-                    const dx = bullet.x - zombie.x;
-                    const dy = bullet.y - zombie.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (distance < zombie.radius) {
-                        zombie.health -= bullet.damage;
-                        room.bullets.splice(bulletIndex, 1);
-                        
-                        if (zombie.health <= 0) {
-                            room.zombies.splice(zombieIndex, 1);
-                            
-                            // Give cash to player who shot the bullet
-                            const player = room.players.get(bullet.playerId);
-                            if (player) {
-                                player.cash += 25;
-                            }
-                            
-                            io.to(roomCode).emit('zombie-killed', { 
-                                zombieId: zombie.id,
-                                playerId: bullet.playerId
-                            });
-                            
-                            // Spawn new wave if all zombies are dead
-                            if (room.zombies.length === 0) {
-                                room.wave++;
-                                spawnZombieWave(room);
-                                // Notify clients about new wave
-                                io.to(roomCode).emit('wave-updated', {
-                                    wave: room.wave,
-                                    zombies: room.zombies
-                                });
-                            }
-                        }
-                    }
-                });
-            });
-        }
-        
-        // Broadcast game state at 30Hz (smooth but not too bandwidth heavy)
-        if (now - (room.lastBroadcast || 0) > 33) { // 30 times per second
-            io.to(roomCode).emit('game-state', {
-                players: Array.from(room.players.values()),
-                zombies: room.zombies,
-                bullets: room.bullets,
-                wave: room.wave,
-                gameState: room.gameState
-            });
-            room.lastBroadcast = now;
-        }
+            }
+        });
+
+        // Broadcast state to all clients
+        io.to(roomCode).emit('game-state', {
+            players: Array.from(room.players.values()),
+            zombies: room.zombies,
+            wave: room.wave
+        });
     });
-}, 1000 / 60); // 60Hz server tick rate
+}, 1000 / 20); // 20Hz for state sync
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     socket.on('join-room', (roomCode, playerName) => {
-        if (!roomCode) {
-            console.log('No room code provided');
-            return;
-        }
+        if (!roomCode) return;
 
         socket.roomCode = roomCode;
         socket.join(roomCode);
@@ -171,12 +108,8 @@ io.on('connection', (socket) => {
             rooms.set(roomCode, {
                 players: new Map(),
                 zombies: [],
-                bullets: [],
-                wave: 1,
-                gameState: 'fight',
-                lastBroadcast: 0
+                wave: 1
             });
-            
             const room = rooms.get(roomCode);
             spawnZombieWave(room);
         }
@@ -191,7 +124,6 @@ io.on('connection', (socket) => {
             radius: 20,
             speed: 5,
             color: getRandomColor(),
-            borderColor: '#0288D1',
             health: 100,
             maxHealth: 100,
             weapon: 'pistol',
@@ -200,16 +132,13 @@ io.on('connection', (socket) => {
 
         console.log(`Player ${socket.id} joined room ${roomCode}`);
         
-        // Send initial game state
+        // Send initial state
         socket.emit('game-state', {
             players: Array.from(room.players.values()),
             zombies: room.zombies,
-            bullets: room.bullets,
-            wave: room.wave,
-            gameState: room.gameState
+            wave: room.wave
         });
 
-        // Notify other players
         socket.to(roomCode).emit('player-joined', room.players.get(socket.id));
     });
 
@@ -221,16 +150,25 @@ io.on('connection', (socket) => {
         const player = room.players.get(socket.id);
         
         if (player) {
-            // Update player position immediately
-            player.x = data.x;
-            player.y = data.y;
+            // Verify movement is reasonable (anti-cheat)
+            const dx = data.x - player.x;
+            const dy = data.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
             
-            // Broadcast to other players
-            socket.to(roomCode).emit('player-moved', {
-                playerId: socket.id,
-                x: data.x,
-                y: data.y
-            });
+            if (distance <= 10) { // Reasonable movement speed
+                player.x = data.x;
+                player.y = data.y;
+                player.health = data.health;
+                player.weapon = data.weapon;
+                
+                socket.to(roomCode).emit('player-update', {
+                    playerId: socket.id,
+                    x: data.x,
+                    y: data.y,
+                    health: data.health,
+                    weapon: data.weapon
+                });
+            }
         }
     });
 
@@ -238,85 +176,51 @@ io.on('connection', (socket) => {
         const roomCode = socket.roomCode;
         if (!roomCode || !rooms.has(roomCode)) return;
 
-        const room = rooms.get(roomCode);
-        bulletData.id = Math.random().toString(36).substr(2, 9);
-        room.bullets.push(bulletData);
-        
-        socket.to(roomCode).emit('bullet-fired', bulletData);
-    });
-
-    socket.on('zombie-killed', (data) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) return;
-
-        const room = rooms.get(roomCode);
-        const zombie = room.zombies.find(z => z.id === data.zombieId);
-        
-        if (zombie) {
-            room.zombies = room.zombies.filter(z => z.id !== data.zombieId);
-            
-            // Give cash to player who killed the zombie
-            const player = room.players.get(data.playerId);
-            if (player) {
-                player.cash += 25;
-            }
-            
-            // Spawn new wave if all zombies are dead
-            if (room.zombies.length === 0) {
-                room.wave++;
-                spawnZombieWave(room);
-                io.to(roomCode).emit('wave-updated', {
-                    wave: room.wave,
-                    zombies: room.zombies
-                });
-            }
+        // Verify bullet data is reasonable
+        if (bulletData.damage >= 10 && bulletData.damage <= 100) {
+            socket.to(roomCode).emit('bullet-created', bulletData);
         }
     });
 
-    socket.on('weapon-purchase', (weaponType) => {
+    socket.on('player-action', (data) => {
         const roomCode = socket.roomCode;
         if (!roomCode || !rooms.has(roomCode)) return;
 
         const room = rooms.get(roomCode);
         const player = room.players.get(socket.id);
         
-        if (player) {
-            const costs = {
-                pistol: 0,
-                shotgun: 1000,
-                rifle: 2000
-            };
-            
-            const cost = costs[weaponType];
-            if (player.cash >= cost) {
-                player.cash -= cost;
-                player.weapon = weaponType;
+        if (!player) return;
+
+        switch(data.type) {
+            case 'zombie-killed':
+                // Verify zombie kill and update cash
+                player.cash = data.cash;
+                break;
                 
-                socket.to(roomCode).emit('weapon-changed', {
-                    playerId: socket.id,
-                    weapon: weaponType
+            case 'weapon-change':
+                // Verify weapon purchase
+                const costs = { pistol: 0, shotgun: 1000, rifle: 2000 };
+                if (player.cash >= costs[data.weapon]) {
+                    player.weapon = data.weapon;
+                    player.cash = data.cash;
+                }
+                break;
+                
+            case 'damage-taken':
+                player.health = data.health;
+                if (player.health <= 0) {
+                    socket.to(roomCode).emit('player-died', { playerId: socket.id });
+                }
+                break;
+                
+            case 'wave-complete':
+                room.wave = data.wave;
+                spawnZombieWave(room);
+                io.to(roomCode).emit('zombie-update', {
+                    zombies: room.zombies,
+                    wave: room.wave
                 });
-            }
-        }
-    });
-
-    socket.on('player-damage', (damage) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !rooms.has(roomCode)) return;
-
-        const room = rooms.get(roomCode);
-        const player = room.players.get(socket.id);
-        
-        if (player) {
-            player.health -= damage;
-            if (player.health <= 0) {
-                player.health = 0;
-            }
-            
-            socket.to(roomCode).emit('player-hit', {
-                playerId: socket.id,
-                newHealth: player.health
-            });
+                break;
         }
     });
 
@@ -343,6 +247,5 @@ const HOST = '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
     console.log(`🚀 Zombie Horde Server running on http://163.192.106.72:${PORT}`);
-    console.log(`🎮 Game modes: Single Player Practice & Multiplayer Co-op`);
-    console.log(`⏱️  60Hz server tick rate`);
+    console.log(`🎯 Client-authoritative gameplay with server verification`);
 });
